@@ -86,6 +86,25 @@ class TestVersionInRange:
     def test_jenkins_patched_version_safe(self):
         assert not version_in_range("2.441.0", self._jenkins_range)
 
+    def test_jenkins_below_start_not_in_range(self):
+        # 2.300 < versionStartIncluding 2.361.1 — not vulnerable
+        assert not version_in_range("2.300", self._jenkins_range)
+
+    # versionStartExcluding edge: the start version itself is NOT in range
+    _start_excluding_range = {
+        "vulnerable": True,
+        "criteria": "cpe:2.3:a:jenkins:jenkins:*",
+        "versionStartExcluding": "2.361.1",
+        "versionEndExcluding": "2.426.3",
+    }
+
+    def test_start_excluding_boundary_not_in_range(self):
+        # versionStartExcluding means strictly greater-than — 2.361.1 itself is out
+        assert not version_in_range("2.361.1", self._start_excluding_range)
+
+    def test_start_excluding_just_above_is_in_range(self):
+        assert version_in_range("2.361.2", self._start_excluding_range)
+
     # Log4Shell style: >=2.0-beta9, <=2.14.1
     _log4j_range = {
         "vulnerable": True,
@@ -102,6 +121,10 @@ class TestVersionInRange:
 
     def test_log4j_patched_version_safe(self):
         assert not version_in_range("2.15.0", self._log4j_range)
+
+    def test_log4j_1x_below_start_not_in_range(self):
+        # 1.2.17 < versionStartIncluding 2.0-beta9 — different major, not vulnerable
+        assert not version_in_range("1.2.17", self._log4j_range)
 
     # OpenSSH regreSSHion style: <9.8p1
     _openssh_range = {
