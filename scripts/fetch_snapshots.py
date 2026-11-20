@@ -18,7 +18,7 @@ load_dotenv()
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from triage.versions import ALIASES, asset_is_vulnerable, find_vulnerable_ranges
+from triage.versions import ALIASES, asset_is_vulnerable, find_vulnerable_ranges, first_matching_range
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -70,11 +70,17 @@ def _fetch_kev() -> dict[str, dict]:
     return {v["cveID"]: v for v in feed.get("vulnerabilities", [])}
 
 
-def _fetch_epss(cve_ids: list[str]) -> dict[str, float]:
-    """Return {cve_id: epss_score} from a single batch EPSS call."""
+def _fetch_epss(cve_ids: list[str]) -> dict[str, dict]:
+    """Return {cve_id: {"epss": float, "percentile": float}} from one batch EPSS call."""
     url = "https://api.first.org/data/v1/epss?cve=" + ",".join(cve_ids)
     data = json.loads(_get(url))
-    return {item["cve"]: float(item["epss"]) for item in data.get("data", [])}
+    return {
+        item["cve"]: {
+            "epss":       float(item["epss"]),
+            "percentile": float(item.get("percentile", 0.0)),
+        }
+        for item in data.get("data", [])
+    }
 
 # ── Snapshot I/O ──────────────────────────────────────────────────────────────
 
@@ -88,36 +94,14 @@ def _save(cve_id: str, name: str, payload: dict) -> None:
 
 # ── Display helpers ───────────────────────────────────────────────────────────
 
-def _first_range_text(nvd: dict) -> tuple[str, str]:
-    """Return (product, range_text) from the first vulnerable CPE in an NVD record."""
-    vulns = nvd.get("vulnerabilities") or []
-    if not vulns:
-        return "?", "?"
-
-    def _walk(node: dict) -> tuple[str, str] | None:
-        for m in node.get("cpeMatch", []):
-            if not m.get("vulnerable"):
-                continue
-            parts = m.get("criteria", "").split(":")
-            product = parts[4] if len(parts) > 4 else "?"
-            tokens: list[str] = []
-            if m.get("versionStartIncluding"): tokens.append(f">={m['versionStartIncluding']}")
-            if m.get("versionStartExcluding"): tokens.append(f">{m['versionStartExcluding']}")
-            if m.get("versionEndIncluding"):   tokens.append(f"<={m['versionEndIncluding']}")
-            if m.get("versionEndExcluding"):   tokens.append(f"<{m['versionEndExcluding']}")
-            return product, (", ".join(tokens) if tokens else "see NVD")
-        for child in node.get("nodes", []):
-            result = _walk(child)
-            if result:
-                return result
-        return None
-
-    for config in vulns[0].get("cve", {}).get("configurations", []):
-        for node in config.get("nodes", []):
-            result = _walk(node)
-            if result:
-                return result
-    return "?", "?"
+def _range_text(cpe_match: dict) -> str:
+    """Format version bounds from one cpeMatch entry."""
+    tokens: list[str] = []
+    if cpe_match.get("versionStartIncluding"): tokens.append(f">={cpe_match['versionStartIncluding']}")
+    if cpe_match.get("versionStartExcluding"): tokens.append(f">{cpe_match['versionStartExcluding']}")
+    if cpe_match.get("versionEndIncluding"):   tokens.append(f"<={cpe_match['versionEndIncluding']}")
+    if cpe_match.get("versionEndExcluding"):   tokens.append(f"<{cpe_match['versionEndExcluding']}")
+    return ", ".join(tokens) if tokens else "see NVD"
 
 
 def _propose_vulnerable_version(ranges: list[dict]) -> str:
@@ -174,69 +158,112 @@ def main() -> None:
         for cve_id in CVES:
             snapshots[cve_id]["kev"] = {"in_kev": False}
 
-    # 3. EPSS ──────────────────────────────────────────────────────────────────
+    # 3. EPSS — saves both epss score and percentile ───────────────────────────
     print("\nFetching EPSS scores …")
+    _epss_empty = {"epss": 0.0, "percentile": 0.0}
     try:
         epss_map = _fetch_epss(CVES)
         for cve_id in CVES:
-            score = epss_map.get(cve_id, 0.0)
-            epss_snap = {"cve": cve_id, "epss": score}
+            scores = epss_map.get(cve_id, _epss_empty)
+            epss_snap = {"cve": cve_id, **scores}
             _save(cve_id, "epss.json", epss_snap)
             snapshots[cve_id]["epss"] = epss_snap
     except Exception as exc:
         print(f"  ERROR: {exc}")
         for cve_id in CVES:
-            snapshots[cve_id]["epss"] = {"epss": 0.0}
+            snapshots[cve_id]["epss"] = _epss_empty
 
-    # 4. Summary table ─────────────────────────────────────────────────────────
-    W = 88
-    print(f"\n{'─' * W}")
-    print(f"{'CVE':<18} {'Product':<18} {'Affected range':<28} {'KEV':<5} {'EPSS'}")
-    print(f"{'─' * W}")
-    for cve_id in CVES:
-        s         = snapshots[cve_id]
-        product, rng = _first_range_text(s.get("nvd", {}))
-        in_kev    = "yes" if s.get("kev", {}).get("in_kev") else "no"
-        epss_val  = f"{s.get('epss', {}).get('epss', 0.0):.4f}"
-        print(f"{cve_id:<18} {product:<18} {rng:<28} {in_kev:<5} {epss_val}")
-    print(f"{'─' * W}")
-
-    # 5. Version matching ──────────────────────────────────────────────────────
-    print("\nChecking against environment.json …\n")
+    # 4. Version matching — runs before the table so the table can show match info
+    print("\nChecking against environment.json …")
     assets = json.loads(ENV_FILE.read_text())["assets"]
-    proposed: list[tuple[str, str, str, str]] = []
 
     for cve_id in CVES:
         nvd = snapshots[cve_id].get("nvd", {})
-        hits: list[str] = []
-        misses: list[tuple[str, str, str, list[dict]]] = []
+        hits: list[dict] = []
+        misses: list[dict] = []
 
         for asset in assets:
             for sw in asset.get("software", []):
-                alias = ALIASES.get(sw["name"])
-                if alias is None:
+                alias_list = ALIASES.get(sw["name"])
+                if not alias_list:
                     continue
-                vendor, product = alias
-                ranges = find_vulnerable_ranges(nvd, vendor, product)
-                if not ranges:
-                    continue
-                if asset_is_vulnerable(sw["version"], ranges):
-                    hits.append(f"{asset['name']} ({sw['name']} {sw['version']})")
-                else:
-                    misses.append((asset["name"], sw["name"], sw["version"], ranges))
+                # Try every (vendor, product) pair. A pair with ranges but no
+                # version match does NOT stop iteration; only a version match stops it.
+                hit_found   = False
+                first_miss  = None
+                for vendor, product in alias_list:
+                    ranges = find_vulnerable_ranges(nvd, vendor, product)
+                    if not ranges:
+                        continue
+                    entry = {
+                        "asset":   asset["name"],
+                        "sw_name": sw["name"],
+                        "version": sw["version"],
+                        "vendor":  vendor,
+                        "product": product,
+                    }
+                    matched = first_matching_range(sw["version"], ranges)
+                    if matched:
+                        hits.append({**entry, "range": matched})
+                        hit_found = True
+                        break
+                    elif first_miss is None:
+                        first_miss = {**entry, "ranges": ranges}
+                if not hit_found and first_miss is not None:
+                    misses.append(first_miss)
+
+        snapshots[cve_id]["hits"]   = hits
+        snapshots[cve_id]["misses"] = misses
+
+    # 5. Summary table ─────────────────────────────────────────────────────────
+    W = 96
+    print(f"\n{'─' * W}")
+    print(f"{'CVE':<18} {'Matched vendor:product':<26} {'Range':<24} {'KEV':<5} {'EPSS':<8} {'Percentile'}")
+    print(f"{'─' * W}")
+    for cve_id in CVES:
+        s      = snapshots[cve_id]
+        hits   = s.get("hits", [])
+        misses = s.get("misses", [])
+
+        if hits:
+            h   = hits[0]
+            vp  = f"{h['vendor']}:{h['product']}"
+            rng = _range_text(h["range"])
+        elif misses:
+            m   = misses[0]
+            vp  = f"{m['vendor']}:{m['product']} (mismatch)"
+            rng = ""
+        else:
+            vp  = "no match"
+            rng = ""
+
+        in_kev  = "yes" if s.get("kev", {}).get("in_kev") else "no"
+        epss_d  = s.get("epss", {})
+        epss_v  = f"{epss_d.get('epss', 0.0):.4f}"
+        pct_v   = f"{epss_d.get('percentile', 0.0):.4f}"
+        print(f"{cve_id:<18} {vp:<26} {rng:<24} {in_kev:<5} {epss_v:<8} {pct_v}")
+    print(f"{'─' * W}")
+
+    # 6. Detailed match report ─────────────────────────────────────────────────
+    print()
+    proposed: list[tuple[str, str, str, str]] = []
+
+    for cve_id in CVES:
+        hits   = snapshots[cve_id].get("hits", [])
+        misses = snapshots[cve_id].get("misses", [])
 
         if hits:
             print(f"  {cve_id}  MATCH")
             for h in hits:
-                print(f"    ✓ {h}")
+                print(f"    ✓ {h['asset']} ({h['sw_name']} {h['version']})")
         elif misses:
-            asset_name, sw_name, sw_ver, ranges = misses[0]
+            m = misses[0]
             print(f"  {cve_id}  version mismatch")
-            print(f"    {asset_name}: {sw_name} {sw_ver} is not in the vulnerable range")
-            fix = _propose_vulnerable_version(ranges)
+            print(f"    {m['asset']}: {m['sw_name']} {m['version']} not in vulnerable range")
+            fix = _propose_vulnerable_version(m["ranges"])
             if fix:
-                print(f"    → propose environment.json change: {sw_name} {sw_ver!r} → {fix!r}")
-                proposed.append((cve_id, asset_name, sw_name, fix))
+                print(f"    → propose environment.json change: {m['sw_name']} {m['version']!r} → {fix!r}")
+                proposed.append((cve_id, m["asset"], m["sw_name"], fix))
         else:
             print(f"  {cve_id}  no matching product in environment")
 

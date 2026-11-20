@@ -4,20 +4,21 @@ from __future__ import annotations
 
 import re
 
-# Maps software names from environment.json to (vendor, product) CPE tuples.
-# Vendor and product must match exactly what NVD uses in its CPE strings.
-ALIASES: dict[str, tuple[str, str]] = {
-    "nginx":          ("nginx",          "nginx"),
-    "openssh-server": ("openbsd",        "openssh"),
-    "log4j-core":     ("apache",         "log4j"),
-    "jenkins":        ("jenkins",        "jenkins"),
-    "postgresql":     ("postgresql",     "postgresql"),
-    "tomcat":         ("apache",         "tomcat"),
-    "redis":          ("redis",          "redis"),
-    "vsftpd":         ("vsftpd_project", "vsftpd"),
-    "prometheus":     ("prometheus",     "prometheus"),
-    "grafana":        ("grafana",        "grafana"),
-    "openjdk":        ("oracle",         "openjdk"),
+# Maps software names from environment.json to lists of (vendor, product) CPE pairs.
+# Each entry is a list so a single software name can match multiple NVD vendor strings
+# (e.g. nginx appears as both "nginx:nginx" and "f5:nginx" in different CVEs).
+ALIASES: dict[str, list[tuple[str, str]]] = {
+    "nginx":          [("nginx", "nginx"), ("f5", "nginx")],
+    "openssh-server": [("openbsd",        "openssh")],
+    "log4j-core":     [("apache",         "log4j")],
+    "jenkins":        [("jenkins",        "jenkins")],
+    "postgresql":     [("postgresql",     "postgresql")],
+    "tomcat":         [("apache",         "tomcat")],
+    "redis":          [("redis",          "redis")],
+    "vsftpd":         [("vsftpd_project", "vsftpd")],
+    "prometheus":     [("prometheus",     "prometheus")],
+    "grafana":        [("grafana",        "grafana")],
+    "openjdk":        [("oracle",         "openjdk")],
 }
 
 
@@ -154,3 +155,11 @@ def find_vulnerable_ranges(nvd_response: dict, vendor: str, product: str) -> lis
 def asset_is_vulnerable(version: str, vulnerable_ranges: list[dict]) -> bool:
     """Return True if version falls in ANY of the vulnerable CPE ranges."""
     return any(version_in_range(version, r) for r in vulnerable_ranges)
+
+
+def first_matching_range(version: str, ranges: list[dict]) -> dict | None:
+    """Return the first cpeMatch entry that version falls in, or None."""
+    for r in ranges:
+        if version_in_range(version, r):
+            return r
+    return None

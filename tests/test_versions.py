@@ -2,6 +2,8 @@
 
 from triage.versions import (
     ALIASES,
+    find_vulnerable_ranges,
+    first_matching_range,
     parse_version,
     version_eq,
     version_in_range,
@@ -158,12 +160,37 @@ class TestVersionInRange:
 
 # ── ALIASES ───────────────────────────────────────────────────────────────────
 
+# Minimal NVD fixture for CVE-2023-44487 nginx entry (f5 vendor)
+_NVD_44487_NGINX_FIXTURE = {
+    "vulnerabilities": [{
+        "cve": {
+            "configurations": [{
+                "nodes": [{
+                    "cpeMatch": [{
+                        "vulnerable": True,
+                        "criteria": "cpe:2.3:a:f5:nginx:*",
+                        "versionStartIncluding": "1.9.5",
+                        "versionEndIncluding": "1.25.2",
+                    }]
+                }]
+            }]
+        }
+    }]
+}
+
+
 class TestAliases:
+    def test_nginx_accepts_nginx_vendor(self):
+        assert ("nginx", "nginx") in ALIASES["nginx"]
+
+    def test_nginx_accepts_f5_vendor(self):
+        assert ("f5", "nginx") in ALIASES["nginx"]
+
     def test_openssh_server_maps_to_openbsd(self):
-        assert ALIASES["openssh-server"] == ("openbsd", "openssh")
+        assert ("openbsd", "openssh") in ALIASES["openssh-server"]
 
     def test_log4j_core_maps_to_apache(self):
-        assert ALIASES["log4j-core"] == ("apache", "log4j")
+        assert ("apache", "log4j") in ALIASES["log4j-core"]
 
     def test_all_environment_software_covered(self):
         required = [
@@ -172,4 +199,90 @@ class TestAliases:
             "redis", "prometheus", "grafana", "openjdk",
         ]
         for name in required:
-            assert name in ALIASES, f"ALIASES missing entry for {name!r}"
+            assert name in ALIASES and len(ALIASES[name]) > 0, \
+                f"ALIASES missing entry for {name!r}"
+
+    def test_nginx_1_24_0_matches_f5_range(self):
+        # 1.24.0 falls in f5:nginx >=1.9.5, <=1.25.2 from CVE-2023-44487
+        all_ranges = []
+        for vendor, product in ALIASES["nginx"]:
+            all_ranges.extend(find_vulnerable_ranges(_NVD_44487_NGINX_FIXTURE, vendor, product))
+        assert any(version_in_range("1.24.0", r) for r in all_ranges)
+
+    def test_nginx_vendor_nginx_not_in_f5_fixture(self):
+        # Confirm the nginx:nginx pair finds nothing in this fixture — only f5:nginx matches
+        ranges_via_nginx_vendor = find_vulnerable_ranges(
+            _NVD_44487_NGINX_FIXTURE, "nginx", "nginx"
+        )
+        assert ranges_via_nginx_vendor == []
+
+    def test_second_alias_pair_matches_when_first_misses(self):
+        # Fixture: nginx:nginx has a range that excludes 1.24.0 (>=2.0.0, <=2.9.9)
+        #          f5:nginx  has a range that includes 1.24.0 (>=1.9.5, <=1.25.2)
+        # Iterating over ALIASES["nginx"] must still return a match.
+        nvd = {
+            "vulnerabilities": [{
+                "cve": {
+                    "configurations": [{
+                        "nodes": [{
+                            "cpeMatch": [
+                                {
+                                    "vulnerable": True,
+                                    "criteria": "cpe:2.3:a:nginx:nginx:*",
+                                    "versionStartIncluding": "2.0.0",
+                                    "versionEndIncluding": "2.9.9",
+                                },
+                                {
+                                    "vulnerable": True,
+                                    "criteria": "cpe:2.3:a:f5:nginx:*",
+                                    "versionStartIncluding": "1.9.5",
+                                    "versionEndIncluding": "1.25.2",
+                                },
+                            ]
+                        }]
+                    }]
+                }
+            }]
+        }
+        # Replicate the loop from fetch_snapshots.py
+        hit = None
+        for vendor, product in ALIASES["nginx"]:
+            ranges = find_vulnerable_ranges(nvd, vendor, product)
+            if not ranges:
+                continue
+            hit = first_matching_range("1.24.0", ranges)
+            if hit:
+                break
+        assert hit is not None, "Should match via f5:nginx even though nginx:nginx range misses"
+
+    def test_first_alias_pair_non_matching_range_does_not_block_second(self):
+        # Inverse: 2.5.0 is in the nginx:nginx range but NOT in the f5:nginx range.
+        # Verifies the fixture is correctly partitioned (guards test integrity).
+        nvd = {
+            "vulnerabilities": [{
+                "cve": {
+                    "configurations": [{
+                        "nodes": [{
+                            "cpeMatch": [
+                                {
+                                    "vulnerable": True,
+                                    "criteria": "cpe:2.3:a:nginx:nginx:*",
+                                    "versionStartIncluding": "2.0.0",
+                                    "versionEndIncluding": "2.9.9",
+                                },
+                                {
+                                    "vulnerable": True,
+                                    "criteria": "cpe:2.3:a:f5:nginx:*",
+                                    "versionStartIncluding": "1.9.5",
+                                    "versionEndIncluding": "1.25.2",
+                                },
+                            ]
+                        }]
+                    }]
+                }
+            }]
+        }
+        nginx_ranges = find_vulnerable_ranges(nvd, "nginx", "nginx")
+        f5_ranges    = find_vulnerable_ranges(nvd, "f5",    "nginx")
+        assert first_matching_range("2.5.0", nginx_ranges) is not None
+        assert first_matching_range("2.5.0", f5_ranges)    is None
