@@ -18,6 +18,11 @@ half-finished complex one.
 ## Architecture (from my design checkpoints)
 - Plain code, no LLM: change detection, asset search, reachability check
   (graph walk over subnets and security groups), ranking rules.
+- Reachability check must return the full path (list of hops with from, to,
+  port) and hop count, not just a yes/no answer.
+- Each hop must record which controls it passes through; treat detect-only
+  controls (e.g. IPS in detect mode) as providing no protection — only
+  block-mode controls count as barriers.
 - RAG: Chroma vector store over vendor advisories and MITRE ATT&CK techniques.
 - Five agents: Coordinator, Threat Researcher, Exposure Analyst,
   Mitigation Planner (Tree-of-Thought, beam width 3, depth 3), Critic.
@@ -46,6 +51,10 @@ half-finished complex one.
 - Never put API keys in code. Never commit .env.
 - Tests must not call live APIs or the LLM; use saved snapshots and fakes.
 - Do not add new frameworks without asking me first.
+- Reachability must be computed by walking security group rules, never by
+  checking public_ip. An asset with public_ip null may still be reachable
+  from the internet through another asset (e.g. the app server behind the
+  load balancer). Always walk the graph.
 
 ## Commands
 - Activate env: source .venv/bin/activate

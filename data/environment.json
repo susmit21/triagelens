@@ -1,0 +1,243 @@
+{
+  "company": "ExampleMart (fictional)",
+  "description": "Synthetic AWS environment for TriageLens CVE triage testing. All public IPs are documentation ranges (RFC 5737, 203.0.113.0/24). All data is invented.",
+  "vpc": {
+    "id": "vpc-examplemart-01",
+    "name": "examplemart-vpc",
+    "cidr": "10.0.0.0/16"
+  },
+  "networks": [
+    {
+      "id": "subnet-public",
+      "name": "public-subnet",
+      "cidr": "10.0.1.0/24",
+      "tier": "public"
+    },
+    {
+      "id": "subnet-app",
+      "name": "app-subnet",
+      "cidr": "10.0.2.0/24",
+      "tier": "app"
+    },
+    {
+      "id": "subnet-data",
+      "name": "data-subnet",
+      "cidr": "10.0.3.0/24",
+      "tier": "data"
+    },
+    {
+      "id": "net-office",
+      "name": "office-network",
+      "cidr": "198.51.100.0/24",
+      "tier": "external"
+    }
+  ],
+  "security_groups": [
+    {
+      "id": "sg-lb",
+      "name": "sg-load-balancer",
+      "inbound": [
+        { "source": "0.0.0.0/0", "port": 80,  "protocol": "tcp" },
+        { "source": "0.0.0.0/0", "port": 443, "protocol": "tcp" }
+      ]
+    },
+    {
+      "id": "sg-app",
+      "name": "sg-app-server",
+      "inbound": [
+        { "source": "sg-lb", "port": 8080, "protocol": "tcp" }
+      ]
+    },
+    {
+      "id": "sg-jenkins",
+      "name": "sg-jenkins",
+      "inbound": [
+        { "source": "sg-admin", "port": 8080,  "protocol": "tcp" },
+        { "source": "sg-admin", "port": 50000, "protocol": "tcp" }
+      ]
+    },
+    {
+      "id": "sg-admin",
+      "name": "sg-admin-host",
+      "inbound": [
+        { "source": "198.51.100.0/24", "port": 22, "protocol": "tcp" }
+      ]
+    },
+    {
+      "id": "sg-postgres",
+      "name": "sg-postgres",
+      "inbound": [
+        { "source": "sg-app",     "port": 5432, "protocol": "tcp" },
+        { "source": "sg-jenkins", "port": 5432, "protocol": "tcp" }
+      ]
+    },
+    {
+      "id": "sg-ftp",
+      "name": "sg-ftp-server",
+      "inbound": [
+        { "source": "0.0.0.0/0", "port": 20, "protocol": "tcp" },
+        { "source": "0.0.0.0/0", "port": 21, "protocol": "tcp" }
+      ]
+    },
+    {
+      "id": "sg-redis",
+      "name": "sg-redis",
+      "inbound": [
+        { "source": "sg-app", "port": 6379, "protocol": "tcp" }
+      ]
+    },
+    {
+      "id": "sg-monitor",
+      "name": "sg-monitor",
+      "inbound": [
+        { "source": "sg-admin", "port": 9090, "protocol": "tcp" },
+        { "source": "sg-admin", "port": 3000, "protocol": "tcp" }
+      ]
+    }
+  ],
+  "assets": [
+    {
+      "id": "asset-nginx-lb",
+      "name": "nginx-lb-01",
+      "role": "load-balancer",
+      "subnet_id": "subnet-public",
+      "private_ip": "10.0.1.10",
+      "public_ip": "203.0.113.10",
+      "software": [
+        { "name": "nginx", "version": "1.24.0" }
+      ],
+      "listening_ports": [80, 443],
+      "security_group_id": "sg-lb",
+      "criticality": "high",
+      "data_held": ["tls-certificates", "routing-config"]
+    },
+    {
+      "id": "asset-app-server",
+      "name": "app-server-01",
+      "role": "application-server",
+      "subnet_id": "subnet-app",
+      "private_ip": "10.0.2.10",
+      "public_ip": null,
+      "software": [
+        { "name": "openjdk",    "version": "11.0.21" },
+        { "name": "log4j-core", "version": "2.14.1"  },
+        { "name": "tomcat",     "version": "9.0.83"  }
+      ],
+      "listening_ports": [8080],
+      "security_group_id": "sg-app",
+      "criticality": "critical",
+      "data_held": ["customer-pii", "session-data", "order-data"]
+    },
+    {
+      "id": "asset-jenkins",
+      "name": "jenkins-01",
+      "role": "build-server",
+      "subnet_id": "subnet-app",
+      "private_ip": "10.0.2.20",
+      "public_ip": null,
+      "software": [
+        { "name": "jenkins", "version": "2.426.1" },
+        { "name": "openjdk", "version": "11.0.21"  }
+      ],
+      "listening_ports": [8080, 50000],
+      "security_group_id": "sg-jenkins",
+      "criticality": "high",
+      "data_held": ["deployment-credentials", "aws-access-keys", "build-secrets", "source-code"]
+    },
+    {
+      "id": "asset-admin-host",
+      "name": "admin-host-01",
+      "role": "admin-bastion",
+      "subnet_id": "subnet-public",
+      "private_ip": "10.0.1.20",
+      "public_ip": "203.0.113.20",
+      "software": [
+        { "name": "openssh-server", "version": "9.3p1" }
+      ],
+      "listening_ports": [22],
+      "security_group_id": "sg-admin",
+      "criticality": "high",
+      "data_held": ["ssh-private-keys", "admin-audit-logs"]
+    },
+    {
+      "id": "asset-postgres",
+      "name": "postgres-db-01",
+      "role": "database",
+      "subnet_id": "subnet-data",
+      "private_ip": "10.0.3.10",
+      "public_ip": null,
+      "software": [
+        { "name": "postgresql", "version": "14.9" }
+      ],
+      "listening_ports": [5432],
+      "security_group_id": "sg-postgres",
+      "criticality": "critical",
+      "data_held": ["customer-pii", "order-history", "payment-metadata", "hashed-credentials"]
+    },
+    {
+      "id": "asset-ftp",
+      "name": "ftp-server-01",
+      "role": "file-server",
+      "subnet_id": "subnet-public",
+      "private_ip": "10.0.1.30",
+      "public_ip": "203.0.113.30",
+      "software": [
+        { "name": "vsftpd", "version": "3.0.5" }
+      ],
+      "listening_ports": [20, 21],
+      "security_group_id": "sg-ftp",
+      "criticality": "medium",
+      "data_held": ["product-catalog", "legacy-reports", "marketing-assets"]
+    },
+    {
+      "id": "asset-redis",
+      "name": "redis-cache-01",
+      "role": "cache",
+      "subnet_id": "subnet-data",
+      "private_ip": "10.0.3.20",
+      "public_ip": null,
+      "software": [
+        { "name": "redis", "version": "7.2.3" }
+      ],
+      "listening_ports": [6379],
+      "security_group_id": "sg-redis",
+      "criticality": "medium",
+      "data_held": ["session-tokens", "user-session-data", "rate-limit-counters"]
+    },
+    {
+      "id": "asset-monitor",
+      "name": "monitor-01",
+      "role": "monitoring",
+      "subnet_id": "subnet-app",
+      "private_ip": "10.0.2.30",
+      "public_ip": null,
+      "software": [
+        { "name": "prometheus", "version": "2.48.0" },
+        { "name": "grafana",    "version": "10.2.2"  }
+      ],
+      "listening_ports": [9090, 3000],
+      "security_group_id": "sg-monitor",
+      "criticality": "low",
+      "data_held": ["infrastructure-metrics", "alert-configs", "dashboard-configs"]
+    }
+  ],
+  "controls": [
+    {
+      "id": "ctrl-waf",
+      "type": "WAF",
+      "name": "examplemart-waf",
+      "mode": "block",
+      "inspects": ["http", "https"],
+      "note": "Inspects HTTP and HTTPS web traffic. Does not inspect non-web protocols (FTP, SSH, etc.). Positioned in front of the load balancer.",
+      "protects_asset_id": "asset-nginx-lb"
+    },
+    {
+      "id": "ctrl-ips",
+      "type": "IPS",
+      "name": "examplemart-ips",
+      "mode": "detect",
+      "note": "Detect-only; does not block or drop traffic. Positioned on the boundary between public-subnet and app-subnet.",
+      "between_subnet_ids": ["subnet-public", "subnet-app"]
+    }
+  ]
+}

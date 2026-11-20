@@ -7,3 +7,7 @@ drafted. Built as a CMU Agentic AI capstone project using the Anthropic Python S
 Chroma for RAG, and Streamlit for the UI.
 
 Work in progress.
+
+**Routing assumption:** the synthetic environment has no route tables. An asset
+in the public subnet with a public IP is treated as internet-routable when its
+security group allows the connection.
