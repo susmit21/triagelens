@@ -1,0 +1,16 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Secrets - never upload
+.env
+.streamlit/secrets.toml
+
+# Generated files
+data/chroma/
+*.log
+
+# Mac
+.DS_Store
