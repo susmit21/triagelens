@@ -1,0 +1,199 @@
+{
+  "description": "Expected triage results for TriageLens evaluation. Each entry defines the correct answer for one (CVE, asset) pair. The eval script scores system output against expected_priority; acceptable_priorities gives the full range of credit-worthy answers. Paths list every hop (from, to, port) and controls crossed. The decoy entry at the end is a false-positive check: no test CVE should be reported against ftp-server-01.",
+  "reachability_rule": "Internet-reachable implies reachable from the office too (the office CIDR 198.51.100.0/24 is covered by 0.0.0.0/0 security-group rules). Reachability is determined by walking security-group rules, never by checking public_ip.",
+  "entries": [
+    {
+      "cve_id": "CVE-2024-23897",
+      "present": true,
+      "asset_id": "asset-jenkins",
+      "asset_name": "jenkins-01",
+      "reachable_from_internet": false,
+      "reachable_from_office": true,
+      "paths": [
+        {
+          "source": "office",
+          "hops": [
+            { "from": "office-network", "to": "admin-host-01", "port": 22 },
+            { "from": "admin-host-01",  "to": "jenkins-01",    "port": 8080 }
+          ],
+          "controls_passed": ["ctrl-ips"],
+          "hop_count": 2
+        }
+      ],
+      "expected_priority": "high",
+      "acceptable_priorities": ["high"],
+      "rationale": "Jenkins 2.426.1 falls in the vulnerable LTS range (< 2.426.3). Arbitrary file read via the Jenkins CLI can expose deployment-credentials and aws-access-keys stored on jenkins-01. KEV-listed (added 2024-08-19); EPSS 1.0. Reachable only from the office via admin-host-01; two SG hops required, crossing the detect-only IPS. Would be critical if internet-facing; the office-only path holds it at high."
+    },
+    {
+      "cve_id": "CVE-2021-44228",
+      "present": true,
+      "asset_id": "asset-app-server",
+      "asset_name": "app-server-01",
+      "reachable_from_internet": true,
+      "reachable_from_office": true,
+      "paths": [
+        {
+          "source": "internet",
+          "hops": [
+            { "from": "internet",      "to": "nginx-lb-01",   "port": 443 },
+            { "from": "nginx-lb-01",   "to": "app-server-01", "port": 8080 }
+          ],
+          "controls_passed": ["ctrl-waf", "ctrl-ips"],
+          "hop_count": 2
+        },
+        {
+          "source": "office",
+          "hops": [
+            { "from": "office-network", "to": "nginx-lb-01",   "port": 443 },
+            { "from": "nginx-lb-01",    "to": "app-server-01", "port": 8080 }
+          ],
+          "controls_passed": ["ctrl-waf", "ctrl-ips"],
+          "hop_count": 2
+        }
+      ],
+      "expected_priority": "critical",
+      "acceptable_priorities": ["critical"],
+      "rationale": "log4j-core 2.14.1 is in the Log4Shell vulnerable range. Unauthenticated RCE is delivered via any logged HTTP field (e.g. User-Agent). app-server-01 is internet-reachable through nginx-lb-01: sg-lb accepts 0.0.0.0/0 on 443, sg-app accepts from sg-lb. The WAF (block mode, HTTP+HTTPS) is a mitigating control but Log4Shell payloads are notoriously evasion-prone; for conservative triage it is not treated as a reliable barrier. The IPS between public and app subnets is detect-only and provides no blocking. app-server-01 holds customer-pii and can pivot to postgres-db-01 and redis-cache-01. KEV-listed (added 2021-12-10); EPSS 1.0. Critical."
+    },
+    {
+      "cve_id": "CVE-2023-44487",
+      "present": true,
+      "asset_id": "asset-nginx-lb",
+      "asset_name": "nginx-lb-01",
+      "reachable_from_internet": true,
+      "reachable_from_office": true,
+      "paths": [
+        {
+          "source": "internet",
+          "hops": [
+            { "from": "internet", "to": "nginx-lb-01", "port": 443 }
+          ],
+          "controls_passed": ["ctrl-waf"],
+          "hop_count": 1
+        },
+        {
+          "source": "office",
+          "hops": [
+            { "from": "office-network", "to": "nginx-lb-01", "port": 443 }
+          ],
+          "controls_passed": ["ctrl-waf"],
+          "hop_count": 1
+        }
+      ],
+      "expected_priority": "high",
+      "acceptable_priorities": ["high"],
+      "rationale": "nginx 1.24.0 is in the f5:nginx vulnerable range (>= 1.9.5, <= 1.25.2). HTTP/2 Rapid Reset is a protocol-level DoS using RST_STREAM frame floods; nginx-lb-01 is the single internet-facing entry point for all web traffic. Impact is DoS only, not data theft. The WAF inspects HTTP/HTTPS at the application layer but Rapid Reset operates at the HTTP/2 framing layer (RST_STREAM), so WAF signatures are unlikely to stop it. KEV-listed (added 2023-10-10); EPSS 1.0. High because DoS on critical infrastructure; not critical because no data is exposed.",
+      "notes": "nginx worker_processes, keepalive_requests, and http2_max_requests configuration limits can reduce but not eliminate the impact of Rapid Reset."
+    },
+    {
+      "cve_id": "CVE-2023-44487",
+      "present": true,
+      "asset_id": "asset-jenkins",
+      "asset_name": "jenkins-01",
+      "reachable_from_internet": false,
+      "reachable_from_office": true,
+      "paths": [
+        {
+          "source": "office",
+          "hops": [
+            { "from": "office-network", "to": "admin-host-01", "port": 22 },
+            { "from": "admin-host-01",  "to": "jenkins-01",    "port": 8080 }
+          ],
+          "controls_passed": ["ctrl-ips"],
+          "hop_count": 2
+        }
+      ],
+      "expected_priority": "medium",
+      "acceptable_priorities": ["low", "medium"],
+      "rationale": "Jenkins 2.426.1 is affected via its embedded Jetty server (HTTP/2 capable). Reachable only from the office network via admin-host-01. Impact is DoS only: an outage of jenkins-01 blocks deployments but exposes no data. The IPS between public and app subnets is detect-only. Same KEV entry and EPSS 1.0 as the nginx row. Practical HTTP/2 exploitability over port 8080 (non-TLS) may be limited. Office-only reach and DoS-only impact together justify medium; low is acceptable."
+    },
+    {
+      "cve_id": "CVE-2024-6387",
+      "present": true,
+      "asset_id": "asset-admin-host",
+      "asset_name": "admin-host-01",
+      "reachable_from_internet": false,
+      "reachable_from_office": true,
+      "paths": [
+        {
+          "source": "office",
+          "hops": [
+            { "from": "office-network", "to": "admin-host-01", "port": 22 }
+          ],
+          "controls_passed": [],
+          "hop_count": 1
+        }
+      ],
+      "expected_priority": "high",
+      "acceptable_priorities": ["high"],
+      "rationale": "openssh-server 9.3p1 is in the regreSSHion vulnerable range (< 9.8p1). Unauthenticated RCE via a signal-handler race condition. admin-host-01 has a public IP (203.0.113.20) but sg-admin restricts port 22 to 198.51.100.0/24 (office only) — the system must not classify this asset as internet-reachable despite the public IP. If exploited from the office, the attacker lands on the admin bastion holding ssh-private-keys and can pivot to jenkins-01 (aws-access-keys) and monitor-01. Not in KEV; EPSS 0.995. High: unauthenticated RCE on a high-value pivot host, constrained to office reach."
+    },
+    {
+      "cve_id": "CVE-2024-10979",
+      "present": true,
+      "asset_id": "asset-postgres",
+      "asset_name": "postgres-db-01",
+      "reachable_from_internet": true,
+      "reachable_from_office": true,
+      "paths": [
+        {
+          "source": "internet",
+          "hops": [
+            { "from": "internet",      "to": "nginx-lb-01",    "port": 443 },
+            { "from": "nginx-lb-01",   "to": "app-server-01",  "port": 8080 },
+            { "from": "app-server-01", "to": "postgres-db-01", "port": 5432 }
+          ],
+          "controls_passed": ["ctrl-waf", "ctrl-ips"],
+          "hop_count": 3
+        },
+        {
+          "source": "office",
+          "hops": [
+            { "from": "office-network", "to": "admin-host-01",  "port": 22 },
+            { "from": "admin-host-01",  "to": "jenkins-01",     "port": 8080 },
+            { "from": "jenkins-01",     "to": "postgres-db-01", "port": 5432 }
+          ],
+          "controls_passed": ["ctrl-ips"],
+          "hop_count": 3
+        }
+      ],
+      "expected_priority": "medium",
+      "acceptable_priorities": ["medium"],
+      "rationale": "PostgreSQL 14.9 is in the vulnerable range (< 14.14). CVE-2024-10979 is a PL/Perl privilege escalation requiring authenticated DB access and PL/Perl enabled. postgres-db-01 is not directly reachable: reaching it requires compromising app-server-01 (internet path) or jenkins-01 (office path) first. An attacker who has already done so already holds the application DB credentials and can read all data directly — the PL/Perl escalation adds marginal additional risk. Not in KEV; EPSS 0.044 (much lower than all other CVEs in this set). Medium: multi-hop, authenticated, chained exploit with low observed exploitation rate."
+    },
+    {
+      "cve_id": "CVE-2023-4966",
+      "present": false,
+      "asset_id": null,
+      "asset_name": null,
+      "reachable_from_internet": false,
+      "reachable_from_office": false,
+      "paths": [],
+      "expected_priority": "not-present",
+      "acceptable_priorities": ["not-present"],
+      "rationale": "No Citrix NetScaler or Bleed-affected software exists in this environment. This is the 'not present' test case: the system must report the CVE as non-applicable and produce no affected-asset findings. KEV-listed (added 2023-10-18); EPSS 1.0 — the CVE is real and severe, but it simply does not apply here."
+    },
+    {
+      "cve_id": null,
+      "present": false,
+      "asset_id": "asset-ftp",
+      "asset_name": "ftp-server-01",
+      "reachable_from_internet": true,
+      "reachable_from_office": true,
+      "paths": [
+        {
+          "source": "internet",
+          "hops": [
+            { "from": "internet", "to": "ftp-server-01", "port": 21 }
+          ],
+          "controls_passed": [],
+          "hop_count": 1,
+          "note": "WAF does not inspect FTP traffic."
+        }
+      ],
+      "expected_priority": "no-finding",
+      "acceptable_priorities": ["no-finding"],
+      "rationale": "ftp-server-01 runs vsftpd 3.0.5 and is internet-exposed (sg-ftp allows 0.0.0.0/0 on ports 20-21). No test CVE targets vsftpd. This is a deliberate false-positive check: any system output reporting a test CVE match against ftp-server-01 is incorrect."
+    }
+  ]
+}
