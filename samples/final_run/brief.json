@@ -1,0 +1,426 @@
+{
+  "generated_at": "2026-11-22T21:40:43.502023+00:00",
+  "model": "claude-sonnet-5-5",
+  "cves_analyzed": [
+    "CVE-2024-23897",
+    "CVE-2021-44228",
+    "CVE-2023-44487",
+    "CVE-2024-6387",
+    "CVE-2024-10979",
+    "CVE-2023-4966"
+  ],
+  "finding_count": 7,
+  "findings": [
+    {
+      "cve_id": "CVE-2021-44228",
+      "asset_id": "asset-app-server",
+      "priority": "critical",
+      "reachability_summary": "internet \u2192 nginx-lb-01:443 (WAF) \u2192 app-server-01:8080 (IPS) (2 hops, WAF+IPS); office \u2192 nginx-lb-01:443 \u2192 app-server-01:8080 (2 hops)",
+      "reasons": [
+        {
+          "claim": "CVSS 10.0, network-exploitable with no privileges or user interaction (AV:N/AC:L/PR:N/UI:N)",
+          "source": "get_cve_details.cvss_vector"
+        },
+        {
+          "claim": "CVE is KEV-listed (added 2021-12-10) with EPSS 0.99999, so it is actively exploited in the wild",
+          "source": "get_cve_details.in_kev / epss"
+        },
+        {
+          "claim": "app-server-01 runs log4j-core 2.14.1, which falls in the vulnerable range >=2.13.0, <2.15.0",
+          "source": "find_affected_assets"
+        },
+        {
+          "claim": "Asset is reachable from the internet and the office in 2 hops via nginx-lb-01:443 and app-server-01:8080, crossing ctrl-waf and ctrl-ips",
+          "source": "check_reachability"
+        },
+        {
+          "claim": "Asset criticality is critical and it holds customer-pii, session-data and order-data. Computed priority is critical and always_review=true.",
+          "source": "rank_finding"
+        },
+        {
+          "claim": "The Apache advisory lists fixed releases 2.3.1 (Java 6), 2.12.3 (Java 7) and 2.16.0 (Java 8 and later)",
+          "source": "search_advisories chunk CVE-2021-44228_0_71"
+        }
+      ],
+      "mitigation": "patch",
+      "mitigation_detail": "Upgrade log4j-core on app-server-01 from 2.14.1 to 2.16.0 if it runs Java 8 or later (2.12.3 for Java 7, 2.3.1 for Java 6), per the Apache Logging Services advisory at https://logging.apache.org/log4j/2.x/security.html. The matched_range from find_affected_assets is >=2.13.0, <2.15.0.",
+      "needs_human_review": true,
+      "review_reasons": [
+        "rank_finding returned always_review=true.",
+        "The find_affected_assets matched_range (<2.15.0) implies a fix at 2.15.0. The vendor advisory (chunk CVE-2021-44228_0_71) names 2.16.0, 2.12.3 and 2.3.1 as the fixed releases, and the CVE description says 2.15.0 is also affected. Please confirm the target version for the Java runtime in use."
+      ],
+      "advisory_citations": [
+        {
+          "chunk_id": "CVE-2021-44228_0_71",
+          "url": "https://logging.apache.org/log4j/2.x/security.html",
+          "domain": "logging.apache.org",
+          "label": "vendor",
+          "text": "a, Arch Linux, and Alpine Linux.\nNote that this vulnerability is not limited to just the JNDI lookup.\nAny other Lookup could also be included in a Thread Context Map variable and possibly have private details exposed to anyone with access to the logs.\nNote that only the\nlog4j-core\nJAR file is impacted by this vulnerability.\nApplications using only the\nlog4j-api\nJAR file without the\nlog4j-core\nJAR file are not impacted by this vulnerability.\nMitigation\nUpgrade to Log4j\n2.3.1\n(for Java 6),\n2.12.3\n(for Java 7), or\n2.16.0\n(for Java 8 and later).\nCredits\nThis issue was discovered by Kai Mindermann of iC Consult and separately by 4ra1n.\nAdditional vulnerability details discovered independently by Ash Fox of Google, Alvaro Mu\u00c3\u00b1oz and Tony Torralba from GitHub, Anthony Weems of Praetorian, and Ryo"
+        }
+      ],
+      "asset_name": "app-server-01",
+      "always_review": true,
+      "in_kev": true,
+      "epss": 0.99999,
+      "epss_percentile": 1.0,
+      "kev_date_added": "2021-12-10",
+      "reachable_from_internet": true,
+      "reachable_from_office": true,
+      "min_hops_internet": 2,
+      "min_hops_office": 2
+    },
+    {
+      "cve_id": "CVE-2024-23897",
+      "asset_id": "asset-jenkins",
+      "priority": "high",
+      "reachability_summary": "office \u2192 admin-host-01:22 \u2192 jenkins-01:8080 (2 hops, IPS detect-only); not reachable from internet",
+      "reasons": [
+        {
+          "claim": "CVSS 9.8 critical, network-exploitable, no auth or user interaction required (AV:N/AC:L/PR:N/UI:N)",
+          "source": "get_cve_details.cvss_vector"
+        },
+        {
+          "claim": "Listed in CISA KEV (added 2024-08-19) with EPSS 0.99999, so it is actively exploited",
+          "source": "get_cve_details.in_kev / get_cve_details.epss"
+        },
+        {
+          "claim": "jenkins-01 runs Jenkins 2.426.1, which matches the vulnerable range <2.426.3",
+          "source": "find_affected_assets.matched_range"
+        },
+        {
+          "claim": "Not reachable from the internet. Reachable from the office network in 2 hops via admin-host-01:22 then jenkins-01:8080, with only ctrl-ips on the path",
+          "source": "check_reachability"
+        },
+        {
+          "claim": "Office-only exposure, but the asset holds sensitive data (deployment-credentials, aws-access-keys, build-secrets, source-code), which gives a high priority",
+          "source": "rank_finding"
+        },
+        {
+          "claim": "Vendor advisory states the fix is Jenkins LTS 2.426.3 or 2.440.1, and that disabling CLI access prevents exploitation",
+          "source": "search_advisories (CVE-2024-23897_0_35, CVE-2024-23897_0_13)"
+        }
+      ],
+      "mitigation": "patch",
+      "mitigation_detail": "Upgrade Jenkins to >= 2.426.3 (source: find_affected_assets matched_range); the vendor advisory lists LTS 2.426.3 or 2.440.1 as fixed, and disabling CLI access is the interim workaround (https://www.jenkins.io/security/advisory/2024-01-24/#SECURITY-3314).",
+      "needs_human_review": false,
+      "review_reasons": [],
+      "advisory_citations": [
+        {
+          "chunk_id": "CVE-2024-23897_0_35",
+          "url": "https://www.jenkins.io/security/advisory/2024-01-24/#SECURITY-3314",
+          "domain": "jenkins.io",
+          "label": "vendor",
+          "text": "in\nup to and including\n1.0.5\nRed Hat Dependency Analytics\nPlugin\nup to and including\n0.7.1\nFix\nJenkins weekly\nshould be updated to version\n2.442\nJenkins LTS\nshould be updated to version\n2.426.3 or 2.440.1\nGit server\nPlugin\nshould be updated to version\n99.101.v720e86326c09\nGitLab Branch Source\nPlugin\nshould be updated to version\n688.v5fa_356ee8520\nMatrix Project\nPlugin\nshould be updated to version\n822.824.v14451b_c0fd42\nQualys Policy Compliance Scanning Connector\nPlugin\nshould be updated to version\n1.0.6\nRed Hat Dependency Analytics\nPlugin\nshould be updated to version\n0.9.0\nThese versions include fixes to the vulnerabilities described above. All prior versions are considered to be affected by these vulnerabilities unless otherwise indicated.\nAs of publication of this advisory, no fixes are "
+        },
+        {
+          "chunk_id": "CVE-2024-23897_0_13",
+          "url": "https://www.jenkins.io/security/advisory/2024-01-24/#SECURITY-3314",
+          "domain": "jenkins.io",
+          "label": "vendor",
+          "text": "the byte values that cannot be read using a character encoding like UTF-8, it isn\u2019t\nimpossible\n.\nTherefore administrators should update Jenkins in a timely manner, regardless of the value of\nfile.encoding\n.\nFix Description:\nJenkins 2.442, LTS 2.426.3, and LTS 2.440.1 disables the command parser feature that replaces an\n@\ncharacter followed by a file path in an argument with the file\u2019s contents for CLI commands.\nIn case of problems with this fix, disable this change by setting the\nJava system property\nhudson.cli.CLICommand.allowAtSyntax\nto\ntrue\n.\nDoing this is strongly discouraged on any network accessible by users who are not Jenkins administrators.\nWorkaround:\nDisabling access to the CLI is expected to prevent exploitation completely.\nDoing so is strongly recommended to administrators una"
+        }
+      ],
+      "asset_name": "jenkins-01",
+      "always_review": false,
+      "in_kev": true,
+      "epss": 0.99999,
+      "epss_percentile": 0.99995,
+      "kev_date_added": "2024-08-19",
+      "reachable_from_internet": false,
+      "reachable_from_office": true,
+      "min_hops_internet": null,
+      "min_hops_office": 2
+    },
+    {
+      "cve_id": "CVE-2023-44487",
+      "asset_id": "asset-nginx-lb",
+      "priority": "high",
+      "reachability_summary": "internet \u2192 nginx-lb-01:443 (1 hop, WAF); office \u2192 nginx-lb-01:443 (1 hop, WAF)",
+      "reasons": [
+        {
+          "claim": "CVSS 7.5, network-exploitable with no authentication, availability-only impact (A:H)",
+          "source": "get_cve_details.cvss_vector"
+        },
+        {
+          "claim": "Listed in KEV (added 2023-10-10) with EPSS 0.99999, so exploited in the wild",
+          "source": "get_cve_details.in_kev / epss"
+        },
+        {
+          "claim": "nginx 1.24.0 falls in the vulnerable range >=1.9.5, <=1.25.2",
+          "source": "find_affected_assets.matched_range"
+        },
+        {
+          "claim": "Reachable directly from the internet on port 443 in 1 hop, crossing only a WAF control",
+          "source": "check_reachability"
+        },
+        {
+          "claim": "Priority is high: internet-reachable and unauthenticated, lowered one level because impact is DoS-only; asset criticality is high",
+          "source": "rank_finding"
+        },
+        {
+          "claim": "The nginx maintainer states nginx is not considered affected in its default configuration, and recommends the limit_req directive as additional protection. This conflicts with the matched vulnerable range.",
+          "source": "search_advisories CVE-2023-44487_1_2"
+        }
+      ],
+      "mitigation": "workaround",
+      "mitigation_detail": "Fixed version not stated in the available data (matched_range ends at the inclusive bound <=1.25.2); as a workaround, use the nginx \"limit_req\" directive to rate-limit and reject excessive requests (source: https://mailman.nginx.org/pipermail/nginx-devel/2023-October/S36Q5HBXR7CAIMPLLPRSSSYR4PCMWILK.html), and confirm the fixed release in the vendor advisory at https://lists.apache.org/thread/5py8h42mxfsn8l1wy6o41xwhsjlsd87q.",
+      "needs_human_review": true,
+      "review_reasons": [
+        "Conflicting evidence: find_affected_assets matches nginx 1.24.0 to the vulnerable range, but the nginx vendor advisory chunk (CVE-2023-44487_1_2) says nginx is not considered affected in its default configuration.",
+        "No fixed nginx version is stated in the tool results, so the exact remediation version needs confirming."
+      ],
+      "advisory_citations": [
+        {
+          "chunk_id": "CVE-2023-44487_1_2",
+          "url": "https://mailman.nginx.org/pipermail/nginx-devel/2023-October/S36Q5HBXR7CAIMPLLPRSSSYR4PCMWILK.html",
+          "domain": "mailman.nginx.org",
+          "label": "vendor",
+          "text": "g spread that nginx is vulnerable to\nCVE-2023-44487.\nWe do not consider nginx to be affected by this issue.  In the\ndefault configuration, nginx is sufficiently protected by the\nlimit of allowed requests per connection (see\nhttp://nginx.org/r/keepalive_requests\nfor details), so an attacker\nwill be required to reconnect very often, making the attack\nobvious and easy to stop at the network level.  And it is not\npossible to circumvent the max concurrent streams limit in nginx,\nas nginx only allows additional streams when previous streams are\ncompletely closed.\nFurther, additional protection can be implemented in nginx by\nusing the \"limit_req\" directive, which limits the rate of requests\nand rejects excessive requests.\nOverall, with the handling as implemented in nginx, impact of\nstreams being"
+        }
+      ],
+      "asset_name": "nginx-lb-01",
+      "always_review": false,
+      "in_kev": true,
+      "epss": 0.99999,
+      "epss_percentile": 0.99998,
+      "kev_date_added": "2023-10-10",
+      "reachable_from_internet": true,
+      "reachable_from_office": true,
+      "min_hops_internet": 1,
+      "min_hops_office": 1
+    },
+    {
+      "cve_id": "CVE-2024-6387",
+      "asset_id": "asset-admin-host",
+      "priority": "high",
+      "reachability_summary": "office-network \u2192 admin-host-01:22 (1 hop, no controls); not reachable from internet",
+      "reasons": [
+        {
+          "claim": "admin-host-01 runs openssh-server 9.3p1, within the vulnerable range >=8.6, <=9.8",
+          "source": "find_affected_assets"
+        },
+        {
+          "claim": "CVSS 8.1 (AV:N/AC:H/PR:N/UI:N), unauthenticated remote race condition in sshd; not in KEV",
+          "source": "get_cve_details.cvss_vector"
+        },
+        {
+          "claim": "EPSS 0.995 (99.9th percentile), very high exploitation probability",
+          "source": "get_cve_details.epss"
+        },
+        {
+          "claim": "Not reachable from internet; reachable from office network on port 22 in 1 hop with no controls crossed",
+          "source": "check_reachability"
+        },
+        {
+          "claim": "Office-only exposure but asset holds sensitive data (ssh-private-keys, admin-audit-logs), criticality high, giving high priority",
+          "source": "rank_finding"
+        },
+        {
+          "claim": "Vendor advisory says Portable OpenSSH 8.5p1 through 9.7p1 is affected and that the 9.8 release contains the fix",
+          "source": "search_advisories (CVE-2024-6387_0_0, CVE-2024-6387_0_1)"
+        }
+      ],
+      "mitigation": "patch",
+      "mitigation_detail": "Upgrade OpenSSH on admin-host-01 to the 9.8 release or a later one, which the vendor advisory at https://www.openssh.com/txt/release-9.8 says fixes this race condition, or install the distro's patched openssh package (e.g. RHSA-2024:4340).",
+      "needs_human_review": true,
+      "review_reasons": [
+        "The matched_range from find_affected_assets (>=8.6, <=9.8) includes 9.8 as vulnerable, but the vendor advisory says 9.8 contains the fix and that 8.5p1\u20139.7p1 is affected. The two sources conflict on the fixed boundary.",
+        "The installed version 9.3p1 may be a distro-backported build, so confirm the exact patched package version for this OS before closing the finding."
+      ],
+      "advisory_citations": [
+        {
+          "chunk_id": "CVE-2024-6387_0_0",
+          "url": "https://www.openssh.com/txt/release-9.8",
+          "domain": "openssh.com",
+          "label": "vendor",
+          "text": "OpenSSH 9.8 was released on 2024-07-01. It is available from the\nmirrors listed at https://www.openssh.com/.\nOpenSSH is a 100% complete SSH protocol 2.0 implementation and\nincludes sftp client and server support.\nOnce again, we would like to thank the OpenSSH community for their\ncontinued support of the project, especially those who contributed\ncode or patches, reported bugs, tested snapshots or donated to the\nproject. More information on donations may be found at:\nhttps://www.openssh.com/donations.html\nSecurity\n========\nThis release contains fixes for two security problems, one critical\nand one minor.\n1) Race condition in sshd(8)\nA critical vulnerability in sshd(8) was present in Portable OpenSSH\nversions between 8.5p1 and 9.7p1 (inclusive) that may allow arbitrary\ncode execution with roo"
+        },
+        {
+          "chunk_id": "CVE-2024-6387_0_1",
+          "url": "https://www.openssh.com/txt/release-9.8",
+          "domain": "openssh.com",
+          "label": "vendor",
+          "text": "penSSH\nversions between 8.5p1 and 9.7p1 (inclusive) that may allow arbitrary\ncode execution with root privileges.\nSuccessful exploitation has been demonstrated on 32-bit Linux/glibc\nsystems with ASLR. Under lab conditions, the attack requires on\naverage 6-8 hours of continuous connections up to the maximum the\nserver will accept. Exploitation on 64-bit systems is believed to be\npossible but has not been demonstrated at this time. It's likely that\nthese attacks will be improved upon.\nExploitation on non-glibc systems is conceivable but has not been\nexamined. Systems that lack ASLR or users of downstream Linux\ndistributions that have modified OpenSSH to disable per-connection\nASLR re-randomisation (yes - this is a thing, no - we don't\nunderstand why) may potentially have an easier path to ex"
+        },
+        {
+          "chunk_id": "CVE-2024-6387_2_1",
+          "url": "https://access.redhat.com/errata/RHSA-2024:4340",
+          "domain": "access.redhat.com",
+          "label": "distro",
+          "text": " score, which gives a detailed severity rating, is available for each vulnerability from the CVE link(s) in the References section.\nDescription\nOpenSSH is an SSH protocol implementation supported by a number of Linux, UNIX, and similar operating systems. It includes the core files necessary for both the OpenSSH client and server.\nSecurity Fix(es):\nopenssh: Possible remote code execution due to a race condition in signal handling (CVE-2024-6387)\nFor more details about the security issue(s), including the impact, a CVSS score, acknowledgments, and other related information, refer to the CVE page(s) listed in the References section.\nSolution\nFor details on how to apply this update, which includes the changes described in this advisory, refer to:\nhttps://access.redhat.com/articles/11258\nAffect"
+        }
+      ],
+      "asset_name": "admin-host-01",
+      "always_review": false,
+      "in_kev": false,
+      "epss": 0.99506,
+      "epss_percentile": 0.99945,
+      "kev_date_added": null,
+      "reachable_from_internet": false,
+      "reachable_from_office": true,
+      "min_hops_internet": null,
+      "min_hops_office": 1
+    },
+    {
+      "cve_id": "CVE-2023-44487",
+      "asset_id": "asset-jenkins",
+      "priority": "medium",
+      "reachability_summary": "office \u2192 admin-host-01:22 \u2192 jenkins-01:8080 (2 hops, IPS); not reachable from internet",
+      "reasons": [
+        {
+          "claim": "CVSS 7.5, network-exploitable with no authentication, availability-only impact (A:H)",
+          "source": "get_cve_details.cvss_vector"
+        },
+        {
+          "claim": "Listed in KEV (added 2023-10-10) with EPSS 0.99999",
+          "source": "get_cve_details.in_kev / epss"
+        },
+        {
+          "claim": "Jenkins 2.426.1 falls in the vulnerable range <=2.427",
+          "source": "find_affected_assets.matched_range"
+        },
+        {
+          "claim": "Not reachable from the internet. Reachable from the office only through admin-host-01 (2 hops), crossing an IPS control.",
+          "source": "check_reachability"
+        },
+        {
+          "claim": "Priority is medium: office-only exposure and DoS-only impact; asset criticality is high",
+          "source": "rank_finding"
+        }
+      ],
+      "mitigation": "patch",
+      "mitigation_detail": "Fixed version not stated in the available data (matched_range ends at the inclusive bound <=2.427); confirm the fixed Jenkins release in the vendor advisory at https://lists.apache.org/thread/5py8h42mxfsn8l1wy6o41xwhsjlsd87q.",
+      "needs_human_review": false,
+      "review_reasons": [],
+      "advisory_citations": [],
+      "asset_name": "jenkins-01",
+      "always_review": false,
+      "in_kev": true,
+      "epss": 0.99999,
+      "epss_percentile": 0.99998,
+      "kev_date_added": "2023-10-10",
+      "reachable_from_internet": false,
+      "reachable_from_office": true,
+      "min_hops_internet": null,
+      "min_hops_office": 2
+    },
+    {
+      "cve_id": "CVE-2024-10979",
+      "asset_id": "asset-postgres",
+      "priority": "medium",
+      "reachability_summary": "internet \u2192 nginx-lb-01:443 (WAF) \u2192 app-server-01:8080 (IPS) \u2192 postgres-db-01:5432 (3 hops, WAF+IPS); office follows the same path",
+      "reasons": [
+        {
+          "claim": "CVSS 8.8 (AV:N/AC:L/PR:L): network exploitable but requires a low-privileged authenticated database user; PL/Perl env variable change can lead to arbitrary code execution",
+          "source": "get_cve_details.cvss_vector"
+        },
+        {
+          "claim": "Not in KEV; EPSS 0.0439 (91.5th percentile)",
+          "source": "get_cve_details"
+        },
+        {
+          "claim": "postgres-db-01 runs PostgreSQL 14.9, within vulnerable range >=14.0, <14.14",
+          "source": "find_affected_assets.matched_range"
+        },
+        {
+          "claim": "Reachable from internet and office via 3 hops, with WAF and IPS controls crossed; the database port is reached only from app-server-01",
+          "source": "check_reachability"
+        },
+        {
+          "claim": "Computed priority is medium: PR:LOW and chained access (3 hops) lowered it from high. The asset is critical and holds customer PII, order history, payment metadata and hashed credentials.",
+          "source": "rank_finding"
+        },
+        {
+          "claim": "Vendor advisory lists 14.14 as the fixed version for the 14 branch",
+          "source": "search_advisories (CVE-2024-10979_0_1)"
+        }
+      ],
+      "mitigation": "patch",
+      "mitigation_detail": "Upgrade PostgreSQL to >= 14.14 (source: find_affected_assets matched_range <14.14; confirmed by the vendor advisory at https://www.postgresql.org/support/security/CVE-2024-10979/). No configuration workaround appeared in the advisory search results.",
+      "needs_human_review": false,
+      "review_reasons": [],
+      "advisory_citations": [
+        {
+          "chunk_id": "CVE-2024-10979_0_1",
+          "url": "https://www.postgresql.org/support/security/CVE-2024-10979/",
+          "domain": "postgresql.org",
+          "label": "vendor",
+          "text": "\nThe PostgreSQL project thanks Coby Abrams for reporting this problem.\nVersion Information\nAffected Version\nFixed In\nFix Published\n17\n17.1\n2024-11-14\n16\n16.5\n2024-11-14\n15\n15.9\n2024-11-14\n14\n14.14\n2024-11-14\n13\n13.17\n2024-11-14\n12\n12.21\n2024-11-14\nFor more information about\nPostgreSQL versioning\n,\nplease visit the\nversioning page\n.\nCVSS 3.0\nOverall Score\n8.8\nComponent\ncore server\nVector\nAV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H\nReporting Security Vulnerabilities\nIf you wish to report a new security vulnerability in PostgreSQL, please\nsend an email to\nsecurity@postgresql.org\n.\nFor reporting non-security bugs, please see the\nReport a Bug\npage."
+        },
+        {
+          "chunk_id": "CVE-2024-10979_0_0",
+          "url": "https://www.postgresql.org/support/security/CVE-2024-10979/",
+          "domain": "postgresql.org",
+          "label": "vendor",
+          "text": "PostgreSQL: CVE-2024-10979: PostgreSQL PL/Perl environment variable changes execute arbitrary code\nNovember 19, 2026:\nPostgreSQL 19 Released!\nQuick Links\nSupport\nVersioning Policy\nSecurity\nProfessional Services\nHosting Solutions\nReport a Bug\nCVE-2024-10979\nPostgreSQL PL/Perl environment variable changes execute arbitrary code\nIncorrect control of environment variables in PostgreSQL\nPL/Perl\nallows an\nunprivileged database user to change sensitive process environment variables\n(e.g.\nPATH\n). That often suffices to enable arbitrary code execution, even if\nthe attacker lacks a database server operating system user. Versions before\nPostgreSQL 17.1, 16.5, 15.9, 14.14, 13.17, and 12.21 are affected.\nThe PostgreSQL project thanks Coby Abrams for reporting this problem.\nVersion Information\nAffected "
+        }
+      ],
+      "asset_name": "postgres-db-01",
+      "always_review": false,
+      "in_kev": false,
+      "epss": 0.04393,
+      "epss_percentile": 0.91508,
+      "kev_date_added": null,
+      "reachable_from_internet": true,
+      "reachable_from_office": true,
+      "min_hops_internet": 3,
+      "min_hops_office": 3
+    },
+    {
+      "cve_id": "CVE-2023-4966",
+      "asset_id": null,
+      "priority": "not-present",
+      "reachability_summary": "not present in this environment",
+      "reasons": [
+        {
+          "claim": "No matching software found in environment",
+          "source": "find_affected_assets"
+        }
+      ],
+      "mitigation": "monitor_only",
+      "mitigation_detail": "No action required; CVE does not affect this environment.",
+      "needs_human_review": false,
+      "review_reasons": [],
+      "advisory_citations": []
+    }
+  ],
+  "usage": {
+    "per_cve": {
+      "CVE-2024-23897": {
+        "input_tokens": 47627,
+        "output_tokens": 1938,
+        "seconds": 18.31
+      },
+      "CVE-2021-44228": {
+        "input_tokens": 47826,
+        "output_tokens": 2397,
+        "seconds": 19.73
+      },
+      "CVE-2023-44487": {
+        "input_tokens": 65394,
+        "output_tokens": 3574,
+        "seconds": 24.35
+      },
+      "CVE-2024-6387": {
+        "input_tokens": 44190,
+        "output_tokens": 2260,
+        "seconds": 20.4
+      },
+      "CVE-2024-10979": {
+        "input_tokens": 46458,
+        "output_tokens": 1901,
+        "seconds": 17.04
+      },
+      "CVE-2023-4966": {
+        "input_tokens": 18573,
+        "output_tokens": 773,
+        "seconds": 8.91
+      }
+    },
+    "total": {
+      "input_tokens": 270068,
+      "output_tokens": 12843,
+      "seconds": 108.74
+    }
+  }
+}
