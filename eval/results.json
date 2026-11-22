@@ -1,0 +1,163 @@
+{
+  "evaluated_at": "2026-11-22T00:30:13.256245+00:00",
+  "run_dir": "/Users/susmitmogarkar/Projects/triagelens/runs/20261122T000213Z",
+  "model": "claude-sonnet-5-5",
+  "metrics": {
+    "priority_accuracy": {
+      "agent": {
+        "correct": 6,
+        "total": 6
+      },
+      "rules": {
+        "correct": 6,
+        "total": 6
+      }
+    },
+    "missed_high": {
+      "agent": 0,
+      "rules": 0
+    },
+    "exposure_accuracy": {
+      "agent": {
+        "correct": 6,
+        "total": 6
+      }
+    },
+    "groundedness": {
+      "agent": {
+        "grounded": 32,
+        "total": 32
+      }
+    },
+    "not_present": {
+      "agent": true,
+      "rules": true
+    },
+    "decoy": {
+      "agent": true,
+      "rules": true
+    },
+    "human_review": {
+      "needs_review": 3,
+      "always_review": 1,
+      "total": 7
+    },
+    "per_finding": [
+      {
+        "cve_id": "CVE-2024-23897",
+        "asset_name": "jenkins-01",
+        "expected": "high",
+        "acceptable": [
+          "high"
+        ],
+        "agent_priority": "high",
+        "agent_match": true,
+        "rules_priority": "high",
+        "rules_match": true,
+        "exp_internet": false,
+        "exp_office": true,
+        "exp_int_hops": null,
+        "exp_off_hops": 2,
+        "agent_int_hops": null,
+        "agent_off_hops": 2,
+        "agent_exp_ok": true
+      },
+      {
+        "cve_id": "CVE-2021-44228",
+        "asset_name": "app-server-01",
+        "expected": "critical",
+        "acceptable": [
+          "critical"
+        ],
+        "agent_priority": "critical",
+        "agent_match": true,
+        "rules_priority": "critical",
+        "rules_match": true,
+        "exp_internet": true,
+        "exp_office": true,
+        "exp_int_hops": 2,
+        "exp_off_hops": 2,
+        "agent_int_hops": 2,
+        "agent_off_hops": 2,
+        "agent_exp_ok": true
+      },
+      {
+        "cve_id": "CVE-2023-44487",
+        "asset_name": "nginx-lb-01",
+        "expected": "high",
+        "acceptable": [
+          "high"
+        ],
+        "agent_priority": "high",
+        "agent_match": true,
+        "rules_priority": "high",
+        "rules_match": true,
+        "exp_internet": true,
+        "exp_office": true,
+        "exp_int_hops": 1,
+        "exp_off_hops": 1,
+        "agent_int_hops": 1,
+        "agent_off_hops": 1,
+        "agent_exp_ok": true
+      },
+      {
+        "cve_id": "CVE-2023-44487",
+        "asset_name": "jenkins-01",
+        "expected": "medium",
+        "acceptable": [
+          "low",
+          "medium"
+        ],
+        "agent_priority": "medium",
+        "agent_match": true,
+        "rules_priority": "medium",
+        "rules_match": true,
+        "exp_internet": false,
+        "exp_office": true,
+        "exp_int_hops": null,
+        "exp_off_hops": 2,
+        "agent_int_hops": null,
+        "agent_off_hops": 2,
+        "agent_exp_ok": true
+      },
+      {
+        "cve_id": "CVE-2024-6387",
+        "asset_name": "admin-host-01",
+        "expected": "high",
+        "acceptable": [
+          "high"
+        ],
+        "agent_priority": "high",
+        "agent_match": true,
+        "rules_priority": "high",
+        "rules_match": true,
+        "exp_internet": false,
+        "exp_office": true,
+        "exp_int_hops": null,
+        "exp_off_hops": 1,
+        "agent_int_hops": null,
+        "agent_off_hops": 1,
+        "agent_exp_ok": true
+      },
+      {
+        "cve_id": "CVE-2024-10979",
+        "asset_name": "postgres-db-01",
+        "expected": "medium",
+        "acceptable": [
+          "medium"
+        ],
+        "agent_priority": "medium",
+        "agent_match": true,
+        "rules_priority": "medium",
+        "rules_match": true,
+        "exp_internet": true,
+        "exp_office": true,
+        "exp_int_hops": 3,
+        "exp_off_hops": 3,
+        "agent_int_hops": 3,
+        "agent_off_hops": 3,
+        "agent_exp_ok": true
+      }
+    ]
+  }
+}

@@ -10,6 +10,7 @@ __pycache__/
 
 # Generated files
 data/chroma/
+runs/
 *.log
 
 # Mac

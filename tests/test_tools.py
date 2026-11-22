@@ -395,3 +395,85 @@ class TestRanking:
         result = rank("CVE-2021-44228", "asset-app-server", r, env=env, snapshot=snap)
         assert len(result.reasons) >= 2
         assert any("KEV" in s for s in result.reasons)
+
+    # always_review: KEV-listed + critical asset → True
+    def test_always_review_set_for_kev_on_critical_asset(self, env):
+        r = check_reachability("asset-app-server", env=env)
+        snap = _cvss_snap("CVE-2021-44228",
+                          "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H", 10.0,
+                          pr="NONE", ci="HIGH", ii="HIGH", ai="HIGH", in_kev=True)
+        result = rank("CVE-2021-44228", "asset-app-server", r, env=env, snapshot=snap)
+        assert result.always_review is True   # app-server is "critical" criticality + KEV
+
+    def test_always_review_false_when_not_kev(self, env):
+        r = check_reachability("asset-admin-host", env=env)
+        snap = _cvss_snap("CVE-2024-6387",
+                          "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:H", 8.1,
+                          pr="NONE", ci="HIGH", ii="HIGH", ai="HIGH", in_kev=False)
+        result = rank("CVE-2024-6387", "asset-admin-host", r, env=env, snapshot=snap)
+        assert result.always_review is False   # not in KEV
+
+    def test_always_review_false_when_not_critical_asset(self, env):
+        # jenkins-01 criticality is "high", not "critical"
+        r = check_reachability("asset-jenkins", env=env)
+        snap = _cvss_snap("CVE-2024-23897",
+                          "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H", 9.8,
+                          pr="NONE", ci="HIGH", ii="HIGH", ai="HIGH", in_kev=True)
+        result = rank("CVE-2024-23897", "asset-jenkins", r, env=env, snapshot=snap)
+        assert result.always_review is False   # KEV=yes but asset criticality is "high"
+
+    def test_rank_result_carries_in_kev_and_epss(self, env):
+        r = check_reachability("asset-nginx-lb", env=env)
+        snap = _cvss_snap("CVE-2023-44487",
+                          "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H", 7.5,
+                          pr="NONE", ci="NONE", ii="NONE", ai="HIGH", in_kev=True)
+        snap.epss["epss"] = 0.9748
+        result = rank("CVE-2023-44487", "asset-nginx-lb", r, env=env, snapshot=snap)
+        assert result.in_kev is True
+        assert abs(result.epss_score - 0.9748) < 0.0001
+
+
+# ── Finding ordering ──────────────────────────────────────────────────────────
+
+class TestFindingOrdering:
+    """sort_findings orders by priority → KEV (yes first) → EPSS (desc)."""
+
+    def test_ordering_priority_beats_kev(self):
+        from triage.cli import sort_findings
+        findings = [
+            {"priority": "high",     "in_kev": True,  "epss": 0.99, "cve_id": "B"},
+            {"priority": "critical", "in_kev": False, "epss": 0.10, "cve_id": "A"},
+        ]
+        result = sort_findings(findings)
+        assert result[0]["cve_id"] == "A"   # critical beats high regardless of KEV
+
+    def test_ordering_kev_first_within_same_priority(self):
+        from triage.cli import sort_findings
+        findings = [
+            {"priority": "high", "in_kev": False, "epss": 0.90, "cve_id": "B"},
+            {"priority": "high", "in_kev": True,  "epss": 0.50, "cve_id": "A"},
+        ]
+        result = sort_findings(findings)
+        assert result[0]["cve_id"] == "A"   # KEV=yes beats KEV=no at same priority
+
+    def test_ordering_epss_tiebreak_within_same_priority_and_kev(self):
+        from triage.cli import sort_findings
+        findings = [
+            {"priority": "high", "in_kev": True, "epss": 0.80, "cve_id": "B"},
+            {"priority": "high", "in_kev": True, "epss": 0.95, "cve_id": "A"},
+            {"priority": "high", "in_kev": True, "epss": 0.60, "cve_id": "C"},
+        ]
+        result = sort_findings(findings)
+        assert [f["cve_id"] for f in result] == ["A", "B", "C"]
+
+    def test_ordering_full_sequence(self):
+        from triage.cli import sort_findings
+        findings = [
+            {"priority": "high",   "in_kev": False, "epss": 0.50, "cve_id": "D"},
+            {"priority": "critical","in_kev": True,  "epss": 0.99, "cve_id": "A"},
+            {"priority": "high",   "in_kev": True,  "epss": 0.80, "cve_id": "C"},
+            {"priority": "high",   "in_kev": False, "epss": 0.70, "cve_id": "B"},
+        ]
+        result = sort_findings(findings)
+        ids = [f["cve_id"] for f in result]
+        assert ids == ["A", "C", "B", "D"]

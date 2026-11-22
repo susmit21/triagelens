@@ -53,6 +53,9 @@ class CvssData:
 class RankResult:
     priority: str             # critical | high | medium | low
     reasons: list[str] = field(default_factory=list)
+    always_review: bool = False   # True when KEV-listed AND asset criticality == "critical"
+    in_kev: bool = False
+    epss_score: float = 0.0
 
 
 def _lower(p: str) -> str:
@@ -180,14 +183,15 @@ def rank(
         )
 
     # ── Rule 4: Informational signals (do not change priority) ───────────────
-    in_kev = snapshot.kev.get("in_kev", False)
+    in_kev   = snapshot.kev.get("in_kev", False)
+    epss_val = snapshot.epss.get("epss", 0.0)
+    pct_val  = snapshot.epss.get("percentile", 0.0)
+
     if in_kev:
         reasons.append(
             f"KEV-listed ({snapshot.kev.get('dateAdded', '?')}): "
             "actively exploited in the wild"
         )
-    epss_val = snapshot.epss.get("epss", 0.0)
-    pct_val  = snapshot.epss.get("percentile", 0.0)
     if epss_val:
         reasons.append(f"EPSS {epss_val:.4f} ({pct_val:.1%} of CVEs)")
 
@@ -196,4 +200,13 @@ def rank(
         f"holds: {', '.join(asset.data_held[:4]) or 'nothing sensitive'}"
     )
 
-    return RankResult(priority=priority, reasons=reasons)
+    # always_review: KEV-listed AND asset is classified as critical infrastructure
+    always_review = in_kev and asset.criticality == "critical"
+
+    return RankResult(
+        priority=priority,
+        reasons=reasons,
+        always_review=always_review,
+        in_kev=in_kev,
+        epss_score=epss_val,
+    )

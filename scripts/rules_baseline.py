@@ -51,13 +51,16 @@ def main() -> None:
         # ── Not-present and decoy entries ────────────────────────────────────
         if cve_id is None:
             rows.append({
-                "cve":      "—",
-                "asset":    entry.get("asset_name", "?"),
-                "computed": "no-finding",
-                "expected": expected,
-                "match":    "YES" if "no-finding" in acceptable else "NO",
-                "path":     "—",
-                "reasons":  [],
+                "cve":          "—",
+                "asset":        entry.get("asset_name", "?"),
+                "computed":     "no-finding",
+                "expected":     expected,
+                "match":        "YES" if "no-finding" in acceptable else "NO",
+                "path":         "—",
+                "reasons":      [],
+                "in_kev":       False,
+                "epss":         0.0,
+                "always_review": False,
             })
             continue
 
@@ -69,13 +72,16 @@ def main() -> None:
             )
             computed = "not-present" if not hits else "present (unexpected)"
             rows.append({
-                "cve":      cve_id,
-                "asset":    "—",
-                "computed": computed,
-                "expected": expected,
-                "match":    "YES" if computed in acceptable else "NO",
-                "path":     "—",
-                "reasons":  [],
+                "cve":          cve_id,
+                "asset":        "—",
+                "computed":     computed,
+                "expected":     expected,
+                "match":        "YES" if computed in acceptable else "NO",
+                "path":         "—",
+                "reasons":      [],
+                "in_kev":       False,
+                "epss":         0.0,
+                "always_review": False,
             })
             continue
 
@@ -86,13 +92,16 @@ def main() -> None:
             rank_result = rank(cve_id, asset_id, reach, env=env, snapshot=snap)
         except Exception as exc:
             rows.append({
-                "cve":      cve_id,
-                "asset":    asset_id,
-                "computed": f"ERROR: {exc}",
-                "expected": expected,
-                "match":    "NO",
-                "path":     "—",
-                "reasons":  [],
+                "cve":          cve_id,
+                "asset":        asset_id,
+                "computed":     f"ERROR: {exc}",
+                "expected":     expected,
+                "match":        "NO",
+                "path":         "—",
+                "reasons":      [],
+                "in_kev":       False,
+                "epss":         0.0,
+                "always_review": False,
             })
             continue
 
@@ -105,26 +114,40 @@ def main() -> None:
         match = "YES" if rank_result.priority in acceptable else "NO"
 
         rows.append({
-            "cve":      cve_id,
-            "asset":    entry.get("asset_name", asset_id),
-            "computed": rank_result.priority,
-            "expected": expected,
-            "match":    match,
-            "path":     path_str,
-            "reasons":  rank_result.reasons,
+            "cve":          cve_id,
+            "asset":        entry.get("asset_name", asset_id),
+            "computed":     rank_result.priority,
+            "expected":     expected,
+            "match":        match,
+            "path":         path_str,
+            "reasons":      rank_result.reasons,
+            "in_kev":       rank_result.in_kev,
+            "epss":         rank_result.epss_score,
+            "always_review": rank_result.always_review,
         })
 
+    # ── Sort: priority → KEV first → EPSS descending ─────────────────────────
+    PRIORITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "not-present": 4, "no-finding": 5}
+    rows.sort(key=lambda r: (
+        PRIORITY_RANK.get(r["computed"], 9),
+        0 if r["in_kev"] else 1,
+        -r["epss"],
+    ))
+
     # ── Print table ───────────────────────────────────────────────────────────
-    W = 110
+    W = 118
     print(f"\n{'─' * W}")
-    print(f"{'CVE':<18} {'Asset':<18} {'Computed':<10} {'Expected':<12} {'Match':<6}  Path")
+    print(f"{'CVE':<18} {'Asset':<18} {'Computed':<10} {'Expected':<12} {'Match':<6} {'KEV':<5} {'EPSS':<8} {'AR':<4}  Path")
     print(f"{'─' * W}")
 
     matches = 0
     for r in rows:
-        mark = "✓" if r["match"] == "YES" else "✗"
-        path_col = r["path"][:55] + ("…" if len(r["path"]) > 55 else "")
-        print(f"{mark} {r['cve']:<17} {r['asset']:<18} {r['computed']:<10} {r['expected']:<12} {r['match']:<6}  {path_col}")
+        mark    = "✓" if r["match"] == "YES" else "✗"
+        kev_col = "yes" if r["in_kev"] else "no"
+        ar_col  = "yes" if r["always_review"] else "no"
+        epss_col = f"{r['epss']:.4f}" if r["epss"] else "—"
+        path_col = r["path"][:44] + ("…" if len(r["path"]) > 44 else "")
+        print(f"{mark} {r['cve']:<17} {r['asset']:<18} {r['computed']:<10} {r['expected']:<12} {r['match']:<6} {kev_col:<5} {epss_col:<8} {ar_col:<4}  {path_col}")
         if r["match"] == "YES":
             matches += 1
 
