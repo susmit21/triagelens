@@ -242,10 +242,33 @@ def compute_metrics(
     agent_decoy_ok = not any(f.get("asset_id") == "asset-ftp" for f in agent_findings)
     rules_decoy_ok = not any(f.get("asset_id") == "asset-ftp" for f in rules_findings)
 
-    # ── Human review ─────────────────────────────────────────────────────────
-    agent_needs_review  = sum(1 for f in agent_findings if f.get("needs_human_review"))
+    # ── Human review (exclude not-present findings from denominator) ─────────
+    _present_findings   = [
+        f for f in agent_findings
+        if f.get("priority") not in ("not-present", "no-finding")
+    ]
+    agent_needs_review  = sum(1 for f in _present_findings if f.get("needs_human_review"))
     agent_always_review = sum(1 for f in agent_findings if f.get("always_review"))
-    agent_total         = len(agent_findings)
+    agent_total         = len(_present_findings)
+
+    # ── Mitigation detail sourced ─────────────────────────────────────────────
+    # A detail is "sourced" if it references a tool/snapshot field OR contains a URL.
+    def _detail_sourced(detail: str) -> bool:
+        if not detail:
+            return False
+        lower = detail.lower()
+        if "http" in lower:
+            return True
+        return any(tok in lower for tok in (
+            "find_affected_assets", "matched_range",
+            "get_cve_details", "check_reachability", "rank_finding",
+        ))
+
+    mit_detail_total   = sum(1 for f in _present_findings if f.get("mitigation_detail"))
+    mit_detail_sourced = sum(
+        1 for f in _present_findings
+        if _detail_sourced(f.get("mitigation_detail", ""))
+    )
 
     return {
         "priority_accuracy": {
@@ -271,9 +294,13 @@ def compute_metrics(
             "rules": rules_decoy_ok,
         },
         "human_review": {
-            "needs_review":  agent_needs_review,
-            "always_review": agent_always_review,
-            "total":         agent_total,
+            "needs_review":        agent_needs_review,
+            "always_review":       agent_always_review,
+            "total":               agent_total,
+        },
+        "mitigation_detail_sourced": {
+            "sourced": mit_detail_sourced,
+            "total":   mit_detail_total,
         },
         "per_finding": per_finding,
     }
@@ -372,8 +399,15 @@ def format_results_md(metrics: dict, run_meta: dict) -> str:
         f"| {_pass_fail(dec['rules'])} |",
         f"| Needs human review | {_pct(hr['needs_review'], hr['total'])} | — |",
         f"| Always-review findings | {hr['always_review']} | — |",
-        "",
     ]
+
+    mds = metrics.get("mitigation_detail_sourced", {})
+    if mds.get("total", 0) > 0:
+        lines.append(
+            f"| Mitigation detail sourced | "
+            f"{_pct(mds['sourced'], mds['total'])} | — |"
+        )
+    lines += ["", ""]
 
     # Token / time usage from run_meta
     per_cve = run_meta.get("per_cve_usage", {})

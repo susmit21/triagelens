@@ -232,6 +232,62 @@ class TestGuardrails:
         assert f["priority"] == "high"
         assert not any("Guardrail" in r for r in (f.get("review_reasons") or []))
 
+    def test_needs_human_review_not_auto_set_for_urgency(self, tmp_path, env):
+        """Urgency/severity alone does not trigger needs_human_review — only the three
+        explicit conditions (always_review, priority disagreement, missing evidence) do."""
+        responses = [
+            FakeMessage(content=[
+                FakeToolUseBlock("tu_1", "rank_finding",
+                                 {"cve_id": "CVE-2024-23897", "asset_id": "asset-jenkins"}),
+            ], stop_reason="tool_use"),
+            FakeMessage(content=[
+                FakeToolUseBlock("tu_2", "submit_finding", {
+                    "cve_id":               "CVE-2024-23897",
+                    "asset_id":             "asset-jenkins",
+                    "priority":             "high",   # correct
+                    "reachability_summary": "office → admin-host-01:22 → jenkins-01:8080",
+                    "reasons":              [{"claim": "KEV listed", "source": "get_cve_details"}],
+                    "mitigation":           "patch",
+                    "mitigation_detail":    "Upgrade Jenkins to >= 2.426.3.",
+                    "needs_human_review":   False,   # agent correctly does not flag for urgency
+                    "review_reasons":       [],
+                }),
+            ], stop_reason="tool_use"),
+            FakeMessage(content=[], stop_reason="end_turn"),
+        ]
+        client = FakeAnthropicClient(responses)
+        findings, _ = run_cve("CVE-2024-23897", client, "fake-model", env, tmp_path)
+        assert len(findings) == 1
+        assert findings[0]["needs_human_review"] is False  # never auto-set for urgency
+
+    def test_needs_human_review_preserved_when_agent_sets_it(self, tmp_path, env):
+        """When agent sets needs_human_review=true with a reason, it passes through unchanged."""
+        responses = [
+            FakeMessage(content=[
+                FakeToolUseBlock("tu_1", "rank_finding",
+                                 {"cve_id": "CVE-2024-23897", "asset_id": "asset-jenkins"}),
+            ], stop_reason="tool_use"),
+            FakeMessage(content=[
+                FakeToolUseBlock("tu_2", "submit_finding", {
+                    "cve_id":               "CVE-2024-23897",
+                    "asset_id":             "asset-jenkins",
+                    "priority":             "high",
+                    "reachability_summary": "...",
+                    "reasons":              [{"claim": "test", "source": "rank_finding"}],
+                    "mitigation":           "patch",
+                    "mitigation_detail":    "Upgrade Jenkins.",
+                    "needs_human_review":   True,
+                    "review_reasons":       ["Tool returned error for reachability field."],
+                }),
+            ], stop_reason="tool_use"),
+            FakeMessage(content=[], stop_reason="end_turn"),
+        ]
+        client = FakeAnthropicClient(responses)
+        findings, _ = run_cve("CVE-2024-23897", client, "fake-model", env, tmp_path)
+        f = findings[0]
+        assert f["needs_human_review"] is True
+        assert len(f["review_reasons"]) >= 1
+
 
 class TestCapAndTrace:
     def test_loop_stops_at_max_tool_calls(self, tmp_path, env):

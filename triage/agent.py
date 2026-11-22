@@ -223,9 +223,24 @@ For each CVE, produce a structured finding for every affected asset.
    segmentation          — isolate the asset via network segmentation
    monitor_only          — no patch/fix available; increase monitoring
 7. MITIGATION_DETAIL: One sentence about the specific action.
-   - For patch: "Upgrade <software> to >= <version> (matched_range end from find_affected_assets)."
-   - For workaround: describe the config change and cite a reference URL from get_cve_details.
-   - If no specific version or workaround is available: "See vendor advisory at <first reference URL>."
+   Use ONLY what the tool results tell you — do not invent or extrapolate version numbers.
+   - matched_range ends with an exclusive bound (e.g. "<2.426.3"):
+       "Upgrade <software> to >= 2.426.3 (source: find_affected_assets matched_range)."
+   - matched_range ends with an inclusive bound ("<=X") or has no fixed-version end:
+       "Fixed version not stated in the available data; confirm in the vendor advisory at
+        <first reference URL from get_cve_details>."
+   - For workarounds: quote the specific configuration change and cite the reference URL.
+   Never write "the first version after" or "the next release after" or guess a version
+   that is not explicitly present in a tool result.
+   Never say "vendor guidance" unless the vendor's text came from a tool result.
+8. NEEDS_HUMAN_REVIEW: Set needs_human_review=true ONLY when one of these three holds:
+   a. rank_finding returned always_review=true.
+   b. You have a specific evidence-based reason to disagree with the computed priority
+      (not just that the finding is urgent, severe, or KEV-listed).
+   c. A required piece of evidence is genuinely missing or contradictory — a tool
+      returned an error, or two tool results give conflicting information.
+   Do NOT set needs_human_review=true merely because a finding is severe, high-EPSS,
+   or holds sensitive data. Those signals are already captured by the priority level.
 """
 
 
