@@ -58,8 +58,11 @@ with st.sidebar:
     st.divider()
     st.markdown("**Run summary**")
     c1, c2 = st.columns(2)
-    c1.metric("CVEs",     len(brief.get("cves_analyzed", [])))
-    c2.metric("Findings", brief.get("finding_count", 0))
+    c1.metric("CVEs",        len(brief.get("cves_analyzed", [])))
+    present_findings  = sum(1 for f in findings if f.get("priority") != "not-present")
+    not_pres_findings = sum(1 for f in findings if f.get("priority") == "not-present")
+    c2.metric("Findings",    present_findings)
+    c1.metric("Not-present", not_pres_findings)
     c1.metric("In tokens",  f"{total_u.get('input_tokens', 0):,}")
     c2.metric("Out tokens", f"{total_u.get('output_tokens', 0):,}")
     st.metric("Wall-clock", f"{total_u.get('seconds', 0):.1f} s")
@@ -206,6 +209,17 @@ for f in findings:
                 )
             else:
                 st.markdown(f"- {r}")
+
+    # Advisory citations
+    citations = f.get("advisory_citations") or []
+    if citations:
+        st.markdown("**Advisory sources:**")
+        for citation in citations:
+            url    = citation.get("url", "")
+            domain = citation.get("domain", url)
+            label  = citation.get("label", "other")
+            text   = citation.get("text", "")[:200]
+            st.markdown(f"- [{domain}]({url}) `{label}` — {text}")
 
     # Review notes
     nhr = f.get("needs_human_review", False)

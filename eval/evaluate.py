@@ -1,5 +1,10 @@
 """Offline evaluation of a TriageLens run against the answer key.
 
+Stage 6 additions:
+  - fix_from_advisory: fraction of patch findings backed by advisory citations
+  - version_in_advisory: fraction of patch findings where version in mitigation_detail
+    also appears in an advisory citation text
+
 Computes 8 metrics for the agent (from brief.json) and the rules baseline
 (computed in-process using the plain-code tools), then writes results.json
 and results.md side-by-side.
@@ -13,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -22,8 +28,23 @@ sys.path.insert(0, str(ROOT))
 
 # Valid tool-name prefixes for the groundedness check
 _VALID_TOOL_PREFIXES = frozenset(
-    {"get_cve_details", "find_affected_assets", "check_reachability", "rank_finding"}
+    {"get_cve_details", "find_affected_assets", "check_reachability", "rank_finding",
+     "search_advisories"}
 )
+
+# Version extraction helpers (Stage 6)
+_URL_RE     = re.compile(r"https?://\S+")
+_CVE_RE     = re.compile(r"CVE-\d{4}-\d+", re.IGNORECASE)
+_CHUNK_ID_RE = re.compile(r"\b[A-Za-z0-9]+-\d{4}-\d+_\d+_\d+\b")
+_VERSION_RE = re.compile(r"\b\d+\.\d+(?:\.\d+)*(?:p\d+)?\b")
+
+
+def _extract_versions(text: str) -> set[str]:
+    """Extract version strings after removing URLs, CVE IDs, and chunk IDs."""
+    cleaned = _URL_RE.sub(" ", text)
+    cleaned = _CVE_RE.sub(" ", cleaned)
+    cleaned = _CHUNK_ID_RE.sub(" ", cleaned)
+    return set(_VERSION_RE.findall(cleaned))
 
 
 # ── Rules baseline ────────────────────────────────────────────────────────────
@@ -270,6 +291,26 @@ def compute_metrics(
         if _detail_sourced(f.get("mitigation_detail", ""))
     )
 
+    # ── Fix from advisory / version verified (Stage 6) ───────────────────────
+    patch_findings = [f for f in _present_findings if f.get("mitigation") == "patch"]
+    fix_from_adv_count = sum(
+        1 for f in patch_findings
+        if f.get("advisory_citations")
+    )
+
+    version_verified_count = 0
+    for f in patch_findings:
+        detail  = f.get("mitigation_detail", "")
+        detail_versions = _extract_versions(detail)
+        if not detail_versions:
+            continue
+        # Collect versions mentioned in any advisory citation text
+        adv_versions: set[str] = set()
+        for citation in f.get("advisory_citations", []):
+            adv_versions |= _extract_versions(citation.get("text", ""))
+        if detail_versions & adv_versions:
+            version_verified_count += 1
+
     return {
         "priority_accuracy": {
             "agent": {"correct": agent_pa_correct, "total": len(scored)},
@@ -301,6 +342,14 @@ def compute_metrics(
         "mitigation_detail_sourced": {
             "sourced": mit_detail_sourced,
             "total":   mit_detail_total,
+        },
+        "fix_from_advisory": {
+            "cited":        fix_from_adv_count,
+            "total_patch":  len(patch_findings),
+        },
+        "version_in_advisory": {
+            "verified":     version_verified_count,
+            "total_patch":  len(patch_findings),
         },
         "per_finding": per_finding,
     }
@@ -406,6 +455,18 @@ def format_results_md(metrics: dict, run_meta: dict) -> str:
         lines.append(
             f"| Mitigation detail sourced | "
             f"{_pct(mds['sourced'], mds['total'])} | — |"
+        )
+    ffa = metrics.get("fix_from_advisory", {})
+    via = metrics.get("version_in_advisory", {})
+    if ffa.get("total_patch", 0) > 0:
+        lines.append(
+            f"| Fix from advisory | "
+            f"{_pct(ffa['cited'], ffa['total_patch'])} | — |"
+        )
+    if via.get("total_patch", 0) > 0:
+        lines.append(
+            f"| Version verified in advisory | "
+            f"{_pct(via['verified'], via['total_patch'])} | — |"
         )
     lines += ["", ""]
 

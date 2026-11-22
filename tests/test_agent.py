@@ -355,6 +355,11 @@ class TestCapAndTrace:
             assert "output_tokens" in u
 
 
+class TestMaxToolCalls:
+    def test_max_tool_calls_is_16(self):
+        assert MAX_TOOL_CALLS == 16
+
+
 class TestToolExecutorDirectly:
     """Unit tests for ToolExecutor without running the full loop."""
 
@@ -369,6 +374,17 @@ class TestToolExecutorDirectly:
         r  = ex.execute("get_cve_details", {"cve_id": "CVE-2024-23897"})
         assert "epss_percentile" in r
         assert r["epss_percentile"] > 0
+
+    def test_get_cve_details_references_are_labeled(self, env):
+        ex = ToolExecutor(env)
+        r  = ex.execute("get_cve_details", {"cve_id": "CVE-2024-23897"})
+        refs = r.get("references", [])
+        assert len(refs) > 0
+        # Each reference must be a dict with url and label
+        for ref in refs:
+            assert "url" in ref
+            assert "label" in ref
+            assert ref["label"] in ("vendor", "distro", "exploit", "other")
 
     def test_find_affected_assets_jenkins(self, env):
         ex = ToolExecutor(env)
@@ -407,3 +423,112 @@ class TestToolExecutorDirectly:
         r  = ex.execute("nonexistent_tool", {})
         assert "error" in r
         assert "unknown" in r["error"]
+
+
+class TestAdvisoryIntegration:
+    """Tests for search_advisories dispatch and cited_chunk_ids validation."""
+
+    def test_search_advisories_dispatched(self, env):
+        """search_advisories tool is callable — returns chunks list (may be empty)."""
+        ex = ToolExecutor(env)
+        r  = ex.execute("search_advisories",
+                        {"cve_id": "CVE-2024-23897", "query": "Jenkins upgrade fix"})
+        assert "chunks" in r
+        assert "source" in r
+        assert isinstance(r["chunks"], list)
+
+    def test_advisory_cache_populated_after_search(self, env):
+        """Cache is populated with returned chunks after search_advisories call."""
+        ex = ToolExecutor(env)
+        ex.execute("search_advisories",
+                   {"cve_id": "CVE-2024-23897", "query": "Jenkins upgrade fix"})
+        assert "CVE-2024-23897" in ex._advisory_cache
+
+    def test_empty_cited_chunk_ids_accepted(self, env):
+        """cited_chunk_ids=[] is always valid."""
+        ex = ToolExecutor(env)
+        ex._advisory_cache["CVE-2024-23897"] = []
+        ex.execute("rank_finding", {"cve_id": "CVE-2024-23897", "asset_id": "asset-jenkins"})
+        r = ex._submit_finding({
+            "cve_id":               "CVE-2024-23897",
+            "asset_id":             "asset-jenkins",
+            "priority":             "high",
+            "reachability_summary": "...",
+            "reasons":              [{"claim": "test", "source": "rank_finding"}],
+            "mitigation":           "patch",
+            "mitigation_detail":    "Upgrade Jenkins to >= 2.426.3.",
+            "needs_human_review":   False,
+            "review_reasons":       [],
+            "cited_chunk_ids":      [],
+        })
+        assert "error" not in r
+        assert r["status"] == "submitted"
+
+    def test_missing_cited_chunk_ids_accepted(self, env):
+        """Omitting cited_chunk_ids altogether is valid (no search_advisories called)."""
+        ex = ToolExecutor(env)
+        ex.execute("rank_finding", {"cve_id": "CVE-2024-23897", "asset_id": "asset-jenkins"})
+        r = ex._submit_finding({
+            "cve_id":               "CVE-2024-23897",
+            "asset_id":             "asset-jenkins",
+            "priority":             "high",
+            "reachability_summary": "...",
+            "reasons":              [{"claim": "test", "source": "rank_finding"}],
+            "mitigation":           "patch",
+            "mitigation_detail":    "Upgrade Jenkins.",
+            "needs_human_review":   False,
+            "review_reasons":       [],
+        })
+        assert "error" not in r
+        assert r["status"] == "submitted"
+
+    def test_unknown_chunk_id_rejected(self, env):
+        """cited_chunk_ids with an ID not in advisory cache → error, finding not submitted."""
+        ex = ToolExecutor(env)
+        ex._advisory_cache["CVE-2024-23897"] = []
+        ex.execute("rank_finding", {"cve_id": "CVE-2024-23897", "asset_id": "asset-jenkins"})
+        r = ex._submit_finding({
+            "cve_id":               "CVE-2024-23897",
+            "asset_id":             "asset-jenkins",
+            "priority":             "high",
+            "reachability_summary": "...",
+            "reasons":              [{"claim": "test", "source": "rank_finding"}],
+            "mitigation":           "patch",
+            "mitigation_detail":    "Upgrade Jenkins.",
+            "needs_human_review":   False,
+            "review_reasons":       [],
+            "cited_chunk_ids":      ["CVE-2024-23897_0_0"],  # bad — not in cache
+        })
+        assert "error" in r
+        assert "Unknown chunk_id" in r["error"]
+        assert len(ex.findings) == 0  # finding was NOT submitted
+
+    def test_advisory_citations_injected_from_cache(self, env):
+        """Valid cited_chunk_ids → advisory_citations list injected into the finding."""
+        ex = ToolExecutor(env)
+        ex._advisory_cache["CVE-2024-23897"] = [{
+            "chunk_id": "CVE-2024-23897_0_0",
+            "url":      "https://www.jenkins.io/security/advisory/2024-01-24/",
+            "domain":   "jenkins.io",
+            "label":    "vendor",
+            "text":     "Upgrade Jenkins to 2.426.3 to fix the vulnerability.",
+        }]
+        ex.execute("rank_finding", {"cve_id": "CVE-2024-23897", "asset_id": "asset-jenkins"})
+        r = ex._submit_finding({
+            "cve_id":               "CVE-2024-23897",
+            "asset_id":             "asset-jenkins",
+            "priority":             "high",
+            "reachability_summary": "...",
+            "reasons":              [{"claim": "test", "source": "rank_finding"}],
+            "mitigation":           "patch",
+            "mitigation_detail":    "Upgrade Jenkins to >= 2.426.3.",
+            "needs_human_review":   False,
+            "review_reasons":       [],
+            "cited_chunk_ids":      ["CVE-2024-23897_0_0"],
+        })
+        assert r["status"] == "submitted"
+        assert len(ex.findings) == 1
+        f = ex.findings[0]
+        assert len(f["advisory_citations"]) == 1
+        assert f["advisory_citations"][0]["url"] == "https://www.jenkins.io/security/advisory/2024-01-24/"
+        assert f["advisory_citations"][0]["label"] == "vendor"
