@@ -1,8 +1,8 @@
 # TriageLens Evaluation Results
 
-Run: /Users/susmitmogarkar/Projects/triagelens/runs/20261122T012358Z
+Run: /Users/susmitmogarkar/Projects/triagelens/runs/20261122T213854Z
 Model: claude-sonnet-5-5
-Evaluated: 2026-11-22T01:25:46Z
+Evaluated: 2026-11-22T21:40:43Z
 Answer key: 8 entries (6 scored, 1 not-present, 1 decoy)
 
 ---
@@ -36,22 +36,24 @@ Answer key: 8 entries (6 scored, 1 not-present, 1 decoy)
 | Priority accuracy | 6/6 (100.0%) | 6/6 (100.0%) |
 | Missed critical/high | 0 | 0 |
 | Exposure accuracy | 6/6 (100.0%) | — |
-| Groundedness | 33/33 (100.0%) | — |
+| Groundedness | 36/36 (100.0%) | — |
 | Not-present (CVE-2023-4966) | pass | pass |
 | Decoy clean (ftp-server-01) | pass | pass |
-| Needs human review | 1/6 (16.7%) | — |
+| Needs human review | 3/6 (50.0%) | — |
 | Always-review findings | 1 | — |
 | Mitigation detail sourced | 6/6 (100.0%) | — |
+| Fix from advisory | 4/5 (80.0%) | — |
+| Version verified in advisory | 4/5 (80.0%) | — |
 
 
 ## Token / Time (Agent)
 
 | CVE | Input tokens | Output tokens | Seconds |
 |-----|-------------|--------------|---------|
-| CVE-2024-23897 | 25,893 | 1,468 | 14.8 |
-| CVE-2021-44228 | 27,334 | 1,900 | 17.1 |
-| CVE-2023-44487 | 45,195 | 2,533 | 23.2 |
-| CVE-2024-6387 | 25,162 | 1,554 | 12.5 |
-| CVE-2024-10979 | 26,320 | 1,609 | 15.5 |
-| CVE-2023-4966 | 15,420 | 710 | 8.2 |
-| **Total** | **165,324** | **9,774** | **91.2** |
+| CVE-2024-23897 | 47,627 | 1,938 | 18.3 |
+| CVE-2021-44228 | 47,826 | 2,397 | 19.7 |
+| CVE-2023-44487 | 65,394 | 3,574 | 24.4 |
+| CVE-2024-6387 | 44,190 | 2,260 | 20.4 |
+| CVE-2024-10979 | 46,458 | 1,901 | 17.0 |
+| CVE-2023-4966 | 18,573 | 773 | 8.9 |
+| **Total** | **270,068** | **12,843** | **108.7** |

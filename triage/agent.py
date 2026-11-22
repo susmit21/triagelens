@@ -26,6 +26,7 @@ from pathlib import Path
 
 from triage.tools.advisories import label_ref as _label_ref
 from triage.tools.advisories import search_advisories as _search_advisories
+from triage.tools.advisories import vendor_domains_for_cpe as _vendor_domains_for_cpe
 from triage.tools.asset_search import find_affected_assets as _find_assets
 from triage.tools.environment import Environment, load_cve_snapshot
 from triage.tools.reachability import check_reachability as _check_reach
@@ -116,10 +117,12 @@ TOOLS: list[dict] = [
         "description": (
             "Search the advisory index for chunks relevant to a CVE.  Returns up to k text "
             "chunks from vendor, distro, and other advisories, each with a chunk_id, URL, "
-            "domain, label (vendor/distro/other), and text excerpt.  Call after "
-            "get_cve_details and find_affected_assets to find mitigation guidance and "
-            "version information.  Record the chunk_ids you rely on and pass them in "
-            "cited_chunk_ids when calling submit_finding."
+            "domain, label (vendor/distro/other), and text excerpt.  "
+            "Call TWICE per CVE after find_affected_assets: "
+            "(1) '<product> fixed version upgrade'; "
+            "(2) '<product> workaround mitigation'.  "
+            "Record the chunk_ids you rely on and pass them in cited_chunk_ids when calling "
+            "submit_finding."
         ),
         "input_schema": {
             "type": "object",
@@ -129,13 +132,14 @@ TOOLS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Plain-language search query, e.g. "
-                        "'Jenkins arbitrary file read fix upgrade version 2.426.3'"
+                        "'Jenkins fixed version upgrade 2.426' or "
+                        "'Jenkins workaround mitigation'"
                     ),
                 },
                 "k": {
                     "type": "integer",
-                    "description": "Number of chunks to return (default 3)",
-                    "default": 3,
+                    "description": "Number of chunks to return (default 5)",
+                    "default": 5,
                 },
             },
             "required": ["cve_id", "query"],
@@ -239,8 +243,12 @@ For each CVE, produce a structured finding for every affected asset.
 ## Required tool call order
 1. get_cve_details       — understand the vulnerability (description, CVSS, KEV, EPSS)
 2. find_affected_assets  — identify which assets run vulnerable software
-3. search_advisories     — (RECOMMENDED) search for mitigation guidance and version details.
-                           Use a descriptive query, e.g. "Jenkins 2.426 fix upgrade version".
+3. search_advisories     — (RECOMMENDED) Run TWO searches back-to-back:
+                           a. "<product> fixed version upgrade" — find the patched version
+                              e.g. "Jenkins fixed version upgrade 2.426"
+                           b. "<product> workaround mitigation" — find configuration mitigations
+                              e.g. "Jenkins workaround mitigation"
+                           Use the product name from find_affected_assets or get_cve_details.
                            Note the chunk_ids you will cite in submit_finding.
 4. For EACH affected asset (handle one asset at a time):
    a. check_reachability — determine how the asset is reachable from internet and office
@@ -334,7 +342,7 @@ class ToolExecutor:
             return self._find_affected_assets(input_["cve_id"])
         if name == "search_advisories":
             return self._search_advisories(
-                input_["cve_id"], input_["query"], int(input_.get("k", 3))
+                input_["cve_id"], input_["query"], int(input_.get("k", 5))
             )
         if name == "check_reachability":
             return self._check_reachability(input_["asset_id"])
@@ -366,22 +374,47 @@ class ToolExecutor:
                 cvss_score = cd.get("baseScore",    0.0)
                 break
 
-        refs = [
-            {"url": r["url"], "label": _label_ref(r["url"])}
-            for r in cve_data.get("references", [])
-            if r.get("url")
-        ]
+        # Derive per-CVE vendor domains from CPE data
+        cpe_products: set[str] = set()
+        for config in cve_data.get("configurations", []):
+            for node in config.get("nodes", []):
+                for cpe_match in node.get("cpeMatch", []):
+                    cpe = cpe_match.get("criteria", "")
+                    parts = cpe.split(":")
+                    if len(parts) >= 5:
+                        cpe_products.add(parts[3].lower())   # vendor field
+                        cpe_products.add(parts[4].lower())   # product field
+        cpe_products.discard("*")
+        cpe_products.discard("")
+        vendor_domains = _vendor_domains_for_cpe(frozenset(cpe_products))
+
+        _LABEL_ORDER = {"vendor": 0, "distro": 1, "other": 2}
+        all_raw_refs = cve_data.get("references", [])
+        total_refs = len(all_raw_refs)
+
+        # Label each ref, drop exploits, sort vendor→distro→other, cap at 10
+        labelled: list[dict] = []
+        for r in all_raw_refs:
+            url = (r.get("url") or "").strip()
+            if not url:
+                continue
+            lbl = _label_ref(url, vendor_domains=vendor_domains)
+            if lbl != "exploit":
+                labelled.append({"url": url, "label": lbl})
+        labelled.sort(key=lambda r: _LABEL_ORDER.get(r["label"], 99))
+        refs = labelled[:10]
 
         return {
-            "cve_id":          cve_id,
-            "description":     desc[:600],
-            "cvss_vector":     cvss_vec,
-            "cvss_base_score": cvss_score,
-            "in_kev":          snap.kev.get("in_kev", False),
-            "kev_date_added":  snap.kev.get("dateAdded"),
-            "epss":            snap.epss.get("epss", 0.0),
-            "epss_percentile": snap.epss.get("percentile", 0.0),
-            "references":      refs,
+            "cve_id":           cve_id,
+            "description":      desc[:600],
+            "cvss_vector":      cvss_vec,
+            "cvss_base_score":  cvss_score,
+            "in_kev":           snap.kev.get("in_kev", False),
+            "kev_date_added":   snap.kev.get("dateAdded"),
+            "epss":             snap.epss.get("epss", 0.0),
+            "epss_percentile":  snap.epss.get("percentile", 0.0),
+            "references":       refs,
+            "total_references": total_refs,
         }
 
     def _find_affected_assets(self, cve_id: str) -> dict:

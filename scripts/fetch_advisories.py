@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from triage.tools.advisories import label_ref
+from triage.tools.advisories import label_ref, vendor_domains_for_cpe
 
 try:
     import requests
@@ -62,8 +62,18 @@ def _product_names(nvd_data: dict) -> set[str]:
     return products
 
 
-def _fetch_text(url: str, timeout: int = 15) -> str | None:
-    """Fetch a URL and return stripped plain text, or None on failure."""
+_PDF = object()  # sentinel returned by _fetch_text when the response is a PDF
+
+
+def _fetch_text(url: str, timeout: int = 15):
+    """
+    Fetch a URL and return stripped plain text.
+
+    Returns:
+      str   — page text on success
+      None  — network/HTTP failure (4xx, 5xx, timeout, etc.)
+      _PDF  — response is a PDF (Content-Type application/pdf or body starts with %PDF)
+    """
     try:
         resp = requests.get(
             url,
@@ -73,6 +83,9 @@ def _fetch_text(url: str, timeout: int = 15) -> str | None:
         )
         if resp.status_code != 200:
             return None
+        ct = resp.headers.get("Content-Type", "")
+        if "application/pdf" in ct or resp.content[:4] == b"%PDF":
+            return _PDF
         soup = BeautifulSoup(resp.text, "html.parser")
         for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
             tag.decompose()
@@ -94,10 +107,9 @@ def _quality_ok(text: str, cve_id: str, product_names: set[str]) -> bool:
     return any(p in lower for p in product_names if len(p) > 3)
 
 
-def _refs_sorted(refs: list[str]) -> list[str]:
+def _refs_sorted(refs: list[str], vendor_domains: frozenset[str]) -> list[str]:
     """Return non-exploit refs sorted: vendor first, then distro, then other."""
-    labelled = [(label_ref(url), url) for url in refs]
-    # Drop exploit URLs entirely
+    labelled = [(label_ref(url, vendor_domains=vendor_domains), url) for url in refs]
     labelled = [(lbl, url) for lbl, url in labelled if lbl != "exploit"]
     labelled.sort(key=lambda x: LABEL_ORDER.get(x[0], 99))
     return [url for _, url in labelled]
@@ -120,6 +132,8 @@ def fetch_all(snapshots_dir: Path = SNAPSHOTS_DIR, advisories_dir: Path = ADVISO
 
         nvd_data = json.loads(nvd_path.read_text())
         product_names = _product_names(nvd_data)
+        # Vendor domains derived per-CVE from CPE product/vendor tokens
+        vendor_domains = vendor_domains_for_cpe(frozenset(product_names))
 
         # Collect reference URLs from NVD
         raw_refs: list[str] = []
@@ -137,7 +151,7 @@ def fetch_all(snapshots_dir: Path = SNAPSHOTS_DIR, advisories_dir: Path = ADVISO
                 seen.add(url)
                 unique_refs.append(url)
 
-        sorted_refs = _refs_sorted(unique_refs)
+        sorted_refs = _refs_sorted(unique_refs, vendor_domains)
         out_dir = advisories_dir / cve_id
         out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -155,13 +169,31 @@ def fetch_all(snapshots_dir: Path = SNAPSHOTS_DIR, advisories_dir: Path = ADVISO
                 fetched_count += 1
                 continue
 
-            lbl = label_ref(url)
+            lbl = label_ref(url, vendor_domains=vendor_domains)
             domain = urlparse(url).netloc.lstrip("www.")
             print(f"[{cve_id}] {n}: fetching [{lbl}] {url}")
 
             text = _fetch_text(url)
             if text is None:
                 print(f"    → fetch failed")
+                continue
+
+            if text is _PDF:
+                print(f"    → PDF response — marking fallback")
+                record = {
+                    "cve_id":          cve_id,
+                    "url":             url,
+                    "domain":          domain,
+                    "label":           lbl,
+                    "text":            "",
+                    "quality_ok":      False,
+                    "fallback_reason": "pdf",
+                }
+                (out_dir / f"{n}.json").write_text(
+                    json.dumps(record, ensure_ascii=False, indent=2)
+                )
+                fetched_count += 1
+                time.sleep(FETCH_DELAY_S)
                 continue
 
             quality = _quality_ok(text, cve_id, product_names)

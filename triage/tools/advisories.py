@@ -19,19 +19,8 @@ CHROMA_DIR     = ROOT / "data" / "chroma"
 _log = logging.getLogger(__name__)
 
 # ── Reference labelling ───────────────────────────────────────────────────────
-
-_VENDOR_DOMAINS: frozenset[str] = frozenset({
-    "jenkins.io",
-    "logging.apache.org",
-    "apache.org",
-    "nginx.org",
-    "f5.com",
-    "my.f5.com",
-    "openssh.com",
-    "postgresql.org",
-    "citrix.com",
-    "support.citrix.com",
-})
+# Vendor domains are per-product, not global.  Call label_ref with the
+# vendor_domains set derived from the CVE's CPE data via vendor_domains_for_cpe.
 
 _DISTRO_DOMAINS: frozenset[str] = frozenset({
     "access.redhat.com",
@@ -56,9 +45,43 @@ _EXPLOIT_DOMAINS: frozenset[str] = frozenset({
     "exploit-db.com",
 })
 
+# Maps CPE product/vendor tokens to the vendor's official advisory domains.
+# The key is a substring that appears in the CPE vendor or product field (lowercase).
+_PRODUCT_VENDOR_MAP: dict[str, frozenset[str]] = {
+    "jenkins":    frozenset({"jenkins.io"}),
+    "log4j":      frozenset({"logging.apache.org", "apache.org"}),
+    "apache":     frozenset({"logging.apache.org", "apache.org"}),
+    "nginx":      frozenset({"nginx.org", "mailman.nginx.org", "f5.com", "my.f5.com"}),
+    "f5":         frozenset({"f5.com", "my.f5.com", "nginx.org"}),
+    "openssh":    frozenset({"openssh.com"}),
+    "postgresql": frozenset({"postgresql.org"}),
+    "citrix":     frozenset({"citrix.com", "support.citrix.com"}),
+}
 
-def label_ref(url: str) -> str:
-    """Classify a reference URL: vendor / distro / exploit / other."""
+
+def vendor_domains_for_cpe(cpe_products: frozenset[str]) -> frozenset[str]:
+    """
+    Return the set of vendor advisory domains for the given CPE product/vendor tokens.
+
+    cpe_products — lowercase product and vendor strings from the CPE, e.g.
+                   frozenset({"jenkins"}) or frozenset({"apache", "log4j"}).
+    """
+    domains: set[str] = set()
+    for token in cpe_products:
+        t = token.lower()
+        for key, dset in _PRODUCT_VENDOR_MAP.items():
+            if key in t or t in key:
+                domains.update(dset)
+    return frozenset(domains)
+
+
+def label_ref(url: str, vendor_domains: frozenset[str] = frozenset()) -> str:
+    """
+    Classify a reference URL: vendor / distro / exploit / other.
+
+    vendor_domains — domains to treat as 'vendor' for this specific CVE.
+                     Derive with vendor_domains_for_cpe; defaults to empty (no vendor match).
+    """
     try:
         parsed = urlparse(url)
         host = parsed.netloc.lower()
@@ -71,18 +94,18 @@ def label_ref(url: str) -> str:
         return "exploit"
 
     if host == "github.com":
-        path = urlparse(url).path.lower()
-        # Split path segments and their word parts (e.g. "CVE-2024-23897-poc" → ["cve", ...,"poc"])
+        path = parsed.path.lower()
         for segment in path.strip("/").split("/"):
             parts = re.split(r"[-_.]", segment)
             if "poc" in parts or "exploit" in parts:
                 return "exploit"
         return "other"
 
-    if host in _VENDOR_DOMAINS:
-        return "vendor"
-    if any(host.endswith("." + d) for d in _VENDOR_DOMAINS):
-        return "vendor"
+    if vendor_domains:
+        if host in vendor_domains:
+            return "vendor"
+        if any(host.endswith("." + d) for d in vendor_domains):
+            return "vendor"
 
     if host in _DISTRO_DOMAINS:
         return "distro"
@@ -94,22 +117,27 @@ def label_ref(url: str) -> str:
 
 # ── Chunking ──────────────────────────────────────────────────────────────────
 
-def _chunk_text(text: str, max_chars: int = 500) -> list[str]:
-    """Split text into chunks of approximately max_chars, respecting paragraphs."""
-    paras = [p.strip() for p in re.split(r"\n\s*\n", text) if p.strip()]
+def _chunk_text(text: str, max_chars: int = 800, overlap: int = 100) -> list[str]:
+    """
+    Slide a window across the full text, producing chunks of max_chars characters
+    with overlap characters shared between consecutive chunks.
+
+    For a 10 000-char text: step=700, chunks start at 0, 700, 1400, … → ~15 chunks.
+    """
+    if not text:
+        return []
+    if len(text) <= max_chars:
+        return [text]
+    step = max_chars - overlap
     chunks: list[str] = []
-    current = ""
-    for para in paras:
-        candidate = (current + "\n\n" + para).strip() if current else para
-        if len(candidate) <= max_chars:
-            current = candidate
-        else:
-            if current:
-                chunks.append(current)
-            current = para[:max_chars]
-    if current:
-        chunks.append(current)
-    return chunks or [text[:max_chars]]
+    start = 0
+    while start < len(text):
+        end = min(start + max_chars, len(text))
+        chunks.append(text[start:end])
+        if end == len(text):
+            break
+        start += step
+    return chunks
 
 
 # ── Index building ─────────────────────────────────────────────────────────────
@@ -121,6 +149,7 @@ def build_advisory_index(
     """
     Build (or rebuild) the Chroma vector index from data/advisories/.
     Run once after fetch_advisories.py; not called during normal triage.
+    Only quality_ok=True files are indexed.
     """
     import chromadb
 
@@ -133,9 +162,10 @@ def build_advisory_index(
         pass
     collection = client.create_collection("advisories")
 
-    ids_all: list[str]  = []
-    docs_all: list[str] = []
+    ids_all: list[str]    = []
+    docs_all: list[str]   = []
     metas_all: list[dict] = []
+    files_indexed = 0
 
     for cve_dir in sorted(advisories_dir.iterdir()):
         if not cve_dir.is_dir():
@@ -143,13 +173,16 @@ def build_advisory_index(
         cve_id = cve_dir.name
         for advisory_file in sorted(cve_dir.glob("*.json")):
             advisory = json.loads(advisory_file.read_text())
-            if not advisory.get("quality_ok"):
+            if advisory.get("quality_ok") is not True:
                 continue
             text = advisory.get("text", "")
             if not text:
                 continue
             n = int(advisory_file.stem)
-            for idx, chunk in enumerate(_chunk_text(text)):
+            file_chunks = _chunk_text(text)
+            print(f"  {cve_id}/{n}: {len(text):,} chars → {len(file_chunks)} chunks")
+            files_indexed += 1
+            for idx, chunk in enumerate(file_chunks):
                 chunk_id = f"{cve_id}_{n}_{idx}"
                 ids_all.append(chunk_id)
                 docs_all.append(chunk)
@@ -161,6 +194,8 @@ def build_advisory_index(
                     "chunk_id": chunk_id,
                 })
 
+    print(f"Total: {len(ids_all)} chunks from {files_indexed} files")
+
     BATCH = 100
     for i in range(0, len(ids_all), BATCH):
         collection.add(
@@ -169,7 +204,7 @@ def build_advisory_index(
             metadatas=metas_all[i : i + BATCH],
         )
 
-    return {"added": len(ids_all), "collection": "advisories"}
+    return {"added": len(ids_all), "collection": "advisories", "files": files_indexed}
 
 
 # ── Testing hooks ─────────────────────────────────────────────────────────────
@@ -202,7 +237,7 @@ def _keyword_fallback(
 
     for advisory_file in sorted(cve_dir.glob("*.json")):
         advisory = json.loads(advisory_file.read_text())
-        if not advisory.get("quality_ok"):
+        if advisory.get("quality_ok") is not True:
             continue
         text = advisory.get("text", "")
         if not text:
@@ -215,7 +250,7 @@ def _keyword_fallback(
             "url":      advisory.get("url", ""),
             "domain":   advisory.get("domain", ""),
             "label":    advisory.get("label", "other"),
-            "text":     text[:500],
+            "text":     text[:800],
         }))
 
     scored.sort(key=lambda x: -x[0])
@@ -232,7 +267,7 @@ def _keyword_fallback(
 def search_advisories(
     cve_id: str,
     query: str,
-    k: int = 3,
+    k: int = 5,
     advisories_dir: Path = ADVISORIES_DIR,
     chroma_dir: Path = CHROMA_DIR,
 ) -> dict:

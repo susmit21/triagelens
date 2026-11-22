@@ -380,11 +380,28 @@ class TestToolExecutorDirectly:
         r  = ex.execute("get_cve_details", {"cve_id": "CVE-2024-23897"})
         refs = r.get("references", [])
         assert len(refs) > 0
-        # Each reference must be a dict with url and label
+        assert len(refs) <= 10                      # capped at 10
+        assert "total_references" in r
+        assert r["total_references"] >= len(refs)   # total includes excluded exploits
         for ref in refs:
             assert "url" in ref
             assert "label" in ref
-            assert ref["label"] in ("vendor", "distro", "exploit", "other")
+            # Exploit refs are filtered out before returning
+            assert ref["label"] in ("vendor", "distro", "other")
+
+    def test_get_cve_details_vendor_first_for_jenkins(self, env):
+        """Jenkins CVE: jenkins.io should be labelled vendor and appear first."""
+        ex = ToolExecutor(env)
+        r  = ex.execute("get_cve_details", {"cve_id": "CVE-2024-23897"})
+        vendor_refs = [ref for ref in r["references"] if ref["label"] == "vendor"]
+        jenkins_refs = [ref for ref in vendor_refs if "jenkins.io" in ref["url"]]
+        assert len(jenkins_refs) >= 1
+        # Vendor refs come before distro/other (sorted)
+        labels = [ref["label"] for ref in r["references"]]
+        vendor_indices = [i for i, l in enumerate(labels) if l == "vendor"]
+        other_indices  = [i for i, l in enumerate(labels) if l in ("distro", "other")]
+        if vendor_indices and other_indices:
+            assert max(vendor_indices) < min(other_indices)
 
     def test_find_affected_assets_jenkins(self, env):
         ex = ToolExecutor(env)
